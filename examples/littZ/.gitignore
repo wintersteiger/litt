@@ -1,0 +1,4 @@
+.vscode
+.cache
+build*
+gcc-arm-none-eabi*

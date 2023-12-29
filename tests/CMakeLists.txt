@@ -1,0 +1,36 @@
+cmake_minimum_required(VERSION 3.13)
+project(littTests VERSION 0.1 LANGUAGES C CXX ASM)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
+enable_testing()
+
+# set(CMAKE_C_COMPILER "clang")
+# set(CMAKE_CXX_COMPILER "clang++")
+# # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer -fsanitize=address,undefined")
+# # set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fno-omit-frame-pointer -fsanitize=address,undefined")
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Og -fno-omit-frame-pointer -fsanitize=undefined,thread")
+# set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -Og -fno-omit-frame-pointer -fsanitize=undefined,thread")
+
+add_executable(pid_tests pid_tests.cpp)
+target_include_directories(pid_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+add_test(NAME pid_tests COMMAND pid_tests)
+target_link_libraries(pid_tests PRIVATE Threads::Threads)
+
+add_executable(thermostat_tests thermostat_tests.cpp)
+target_include_directories(thermostat_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+add_test(NAME thermostat_tests COMMAND thermostat_tests)
+target_link_libraries(thermostat_tests PRIVATE Threads::Threads)
+
+add_executable(opentherm_tests opentherm_tests.cpp)
+target_include_directories(opentherm_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+add_test(NAME opentherm_tests COMMAND opentherm_tests)
+target_link_libraries(opentherm_tests PRIVATE Threads::Threads)
+
+add_executable(e2e_tests e2e_tests.cpp)
+target_include_directories(e2e_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+add_test(NAME e2e_tests COMMAND e2e_tests)
+target_link_libraries(e2e_tests PRIVATE Threads::Threads)

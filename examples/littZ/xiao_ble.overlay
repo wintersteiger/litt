@@ -1,0 +1,45 @@
+// To get started, press Ctrl+Space to bring up the completion menu and view the available nodes.
+
+// You can also use the buttons in the sidebar to perform actions on nodes.
+// Actions currently available include:
+
+// * Enabling / disabling the node
+// * Adding the bus to a bus
+// * Removing the node
+// * Connecting ADC channels
+
+// For more help, browse the DeviceTree documentation at https://docs.zephyrproject.org/latest/guides/dts/index.html
+// You can also visit the nRF DeviceTree extension documentation at https://nrfconnect.github.io/vscode-nrf-connect/devicetree/nrfdevicetree.html
+
+/ {
+  aliases {
+      otin = &opentherm_in;
+      otout = &opentherm_out;
+  };
+  gpio_keys {
+      compatible = "gpio-keys";
+      opentherm_in: opentherm_in {
+          gpios = <&gpio1 14 GPIO_ACTIVE_HIGH>;
+          label = "OpenTherm input";
+      };
+      opentherm_out: opentherm_out {
+        gpios = <&gpio1 13 GPIO_ACTIVE_HIGH>; // *_GPIO_VOLTAGE_* for 3.3V?
+        label = "OpenTherm output";
+    };
+  };
+
+  // chosen {
+  //   ncs,zboss-trace-uart = &cdc_acm_uart1;
+  // };
+};
+
+// &uart0 {
+//   /delete-property/ hw-flow-control;
+// };
+
+// &zephyr_udc0 {
+//   cdc_acm_uart1: cdc_acm_uart1 {
+//      compatible = "zephyr,cdc-acm-uart";
+//      label = "CDC_ACM_1";
+//   };
+// };

@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Thermostat</title>
+  <style>
+    td {
+      text-align: right
+    }
+
+    td.txt {
+      text-align: left
+    }
+
+    table,
+    th,
+    td {
+      border: 1px solid;
+    }
+
+    table { display: inline-block }
+  </style>
+</head>
+
+<body>
+  <h2>Controller Statistics</h2>
+  <table>
+    <tr>
+      <th>Item</th>
+      <th>Value</th>
+    </tr>
+    <tr>
+      <td class="txt">Uptime</td>
+      <td>00:00:00:25.792799</td>
+    </tr>
+    <tr>
+      <td class="txt"># MQTT reconnects</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td class="txt"># frames rx/tx</td>
+      <td>26/26</td>
+    </tr>
+    <tr>
+      <td class="txt">Mode</td>
+      <td>automatic</td>
+    </tr>
+    <tr>
+      <td class="txt"># cycles tiny/short/normal</td>
+      <td>0/0/0</td>
+    </tr>
+  </table>
+  <h2>OpenTherm Data IDs</h2>
+  <table>
+    <tr>
+      <th>Data ID</th>
+      <th>Raw</th>
+      <th>Value</th>
+      <th>Name</th>
+      <th>Description</th>
+    </tr>
+    <tr>
+      <td>0</td>
+      <td>0200</td>
+      <td>02/00</td>
+      <td class="txt">Status</td>
+      <td class="txt">Master and Slave Status flags</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>0000</td>
+      <td>0.00</td>
+      <td class="txt">T_set</td>
+      <td class="txt">Control setpoint, i.e. CH water temperature setpoint (&deg;C)</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>4106</td>
+      <td>41/6</td>
+      <td class="txt">S-Config / S-MemberIDcode</td>
+      <td class="txt">Slave Configuration Flags / Slave MemberID Code</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>0400</td>
+      <td>4/0</td>
+      <td class="txt"># TSP</td>
+      <td class="txt">Number of Transparent-Slave-Parameters supported by slave</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td>2012</td>
+      <td>32/18</td>
+      <td class="txt">Max-Capacity / Min-Mod-Level</td>
+      <td class="txt">Maximum boiler capacity (kW) / Minimum boiler modulation level (%)</td>
+    </tr>
+    <tr>
+      <td>17</td>
+      <td>0000</td>
+      <td>0.00</td>
+      <td class="txt">Rel.-mod-level</td>
+      <td class="txt">Relative Modulation Level (%)</td>
+    </tr>
+    <tr>
+      <td>18</td>
+      <td>0100</td>
+      <td>1.00</td>
+      <td class="txt">CH-pressure</td>
+      <td class="txt">Water pressure in CH circuit (bar)</td>
+    </tr>
+    <tr>
+      <td>19</td>
+      <td>0000</td>
+      <td>0.00</td>
+      <td class="txt">DHW-flow-rate</td>
+      <td class="txt">Water flow rate in DHW circuit (litres/minute)</td>
+    </tr>
+    <tr>
+      <td>25</td>
+      <td>1fcc</td>
+      <td>31.80</td>
+      <td class="txt">T_boiler</td>
+      <td class="txt">Boiler flow water temperature (&deg;C)</td>
+    </tr>
+    <tr>
+      <td>27</td>
+      <td>0b00</td>
+      <td>11.00</td>
+      <td class="txt">T_outside</td>
+      <td class="txt">Outside temperature (&deg;C)</td>
+    </tr>
+    <tr>
+      <td>28</td>
+      <td>2019</td>
+      <td>32.10</td>
+      <td class="txt">T_ret</td>
+      <td class="txt">Return water temperature (&deg;C)</td>
+    </tr>
+    <tr>
+      <td>35</td>
+      <td>0000</td>
+      <td>0/0</td>
+      <td class="txt">Fan speed</td>
+      <td class="txt">Boiler fan speed setpoint and actual value (%)</td>
+    </tr>
+    <tr>
+      <td>49</td>
+      <td>501e</td>
+      <td>80/30</td>
+      <td class="txt">MaxT_Set UB/LB</td>
+      <td class="txt">Max CH water setpoint upper &amp; lower bounds for adjustment (&deg;C)</td>
+    </tr>
+    <tr>
+      <td>57</td>
+      <td>5000</td>
+      <td>80.00</td>
+      <td class="txt">MaxT_set</td>
+      <td class="txt">Max CH water setpoint (&deg;C) (Remote parameters 2)</td>
+    </tr>
+    <tr>
+      <td>125</td>
+      <td>0400</td>
+      <td>4.00</td>
+      <td class="txt">OpenTherm version Slave</td>
+      <td class="txt">The implemented version of the OpenTherm Protocol Specification in the slave</td>
+    </tr>
+    <tr>
+      <td>127</td>
+      <td>8403</td>
+      <td>132/3</td>
+      <td class="txt">Slave-version</td>
+      <td class="txt">Slave product version number and type</td>
+    </tr>
+  </table>
+  <h2>PID Controllers</h2>
+  <table>
+    <tr>
+      <th>Item</th>
+      <th>Value</th>
+    </tr>
+    <tr>
+      <td>Room</td>
+      <td>21.000000</td>
+    </tr>
+    <tr>
+      <td>Setpoint</td>
+      <td>21.000000</td>
+    </tr>
+    <tr>
+      <td>kp</td>
+      <td>56.250000</td>
+    </tr>
+    <tr>
+      <td>ki</td>
+      <td>0.018750</td>
+    </tr>
+    <tr>
+      <td>kd</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>min</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>max</td>
+      <td>80.000000</td>
+    </tr>
+    <tr>
+      <td>output</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>cum. error</td>
+      <td>0.000000</td>
+    </tr>
+  </table>
+  <table>
+    <tr>
+      <th>Item</th>
+      <th>Value</th>
+    </tr>
+    <tr>
+      <td>Room</td>
+      <td>21.000000</td>
+    </tr>
+    <tr>
+      <td>Setpoint</td>
+      <td>21.000000</td>
+    </tr>
+    <tr>
+      <td>kp</td>
+      <td>56.250000</td>
+    </tr>
+    <tr>
+      <td>ki</td>
+      <td>0.018750</td>
+    </tr>
+    <tr>
+      <td>kd</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>min</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>max</td>
+      <td>80.000000</td>
+    </tr>
+    <tr>
+      <td>output</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>cum. error</td>
+      <td>0.000000</td>
+    </tr>
+  </table>
+  <table>
+    <tr>
+      <th>Item</th>
+      <th>Value</th>
+    </tr>
+    <tr>
+      <td>Room</td>
+      <td>21.000000</td>
+    </tr>
+    <tr>
+      <td>Setpoint</td>
+      <td>21.000000</td>
+    </tr>
+    <tr>
+      <td>kp</td>
+      <td>56.250000</td>
+    </tr>
+    <tr>
+      <td>ki</td>
+      <td>0.018750</td>
+    </tr>
+    <tr>
+      <td>kd</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>min</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>max</td>
+      <td>80.000000</td>
+    </tr>
+    <tr>
+      <td>output</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>cum. error</td>
+      <td>0.000000</td>
+    </tr>
+  </table>
+  <table>
+    <tr>
+      <th>Item</th>
+      <th>Value</th>
+    </tr>
+    <tr>
+      <td>Room</td>
+      <td>21.000000</td>
+    </tr>
+    <tr>
+      <td>Setpoint</td>
+      <td>21.000000</td>
+    </tr>
+    <tr>
+      <td>kp</td>
+      <td>56.250000</td>
+    </tr>
+    <tr>
+      <td>ki</td>
+      <td>0.018750</td>
+    </tr>
+    <tr>
+      <td>kd</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>min</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>max</td>
+      <td>80.000000</td>
+    </tr>
+    <tr>
+      <td>output</td>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <td>cum. error</td>
+      <td>0.000000</td>
+    </tr>
+  </table>
+  <h2>lwIP Memory Statistics</h2>
+  <table>
+    <tr>
+      <th>Pool</th>
+      <th>err</th>
+      <th>avail</th>
+      <th>used</th>
+      <th>max</th>
+      <th>illegal</th>
+    </tr>
+    <tr>
+      <td class="txt">Global</td>
+      <td>0</td>
+      <td>131072</td>
+      <td>13552</td>
+      <td>13552</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td class="txt">RAW_PCB</td>
+      <td>0</td>
+      <td>4</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td class="txt">UDP_PCB</td>
+      <td>0</td>
+      <td>4</td>
+      <td>1</td>
+      <td>1</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td class="txt">TCP_PCB</td>
+      <td>0</td>
+      <td>5</td>
+      <td>3</td>
+      <td>3</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td class="txt">TCP_PCB_LISTEN</td>
+      <td>0</td>
+      <td>8</td>
+      <td>1</td>
+      <td>1</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td class="txt">TCP_SEG</td>
+      <td>0</td>
+      <td>32</td>
+      <td>1</td>
+      <td>2</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td class="txt">REASSDATA</td>
+      <td>0</td>
+      <td>5</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td class="txt">SYS_TIMEOUT</td>
+      <td>0</td>
+      <td>11</td>
+      <td>7</td>
+      <td>7</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td class="txt">PBUF_REF/ROM</td>
+      <td>0</td>
+      <td>16</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td class="txt">PBUF_POOL</td>
+      <td>0</td>
+      <td>24</td>
+      <td>1</td>
+      <td>1</td>
+      <td>0</td>
+    </tr>
+  </table>
+</body>
+
+</html>
