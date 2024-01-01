@@ -27,6 +27,7 @@ extern "C" {
 #include <zcl/zb_zcl_reporting.h>
 #include <zcl/zb_zcl_thermostat.h>
 #include <zcl/zb_zcl_time.h>
+#include <zcl/zb_zcl_diagnostics.h>
 #include <zigbee/zigbee_app_utils.h>
 #include <zigbee/zigbee_error_handler.h>
 
@@ -62,7 +63,7 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
 #define DEVICE_ID 0x0052
 #define DEVICE_VERSION 1
 
-#define IN_CLUSTER_NUM 4
+#define IN_CLUSTER_NUM 5
 #define OUT_CLUSTER_NUM 3
 #define NUM_IN_OUT_CLUSTERS (IN_CLUSTER_NUM + OUT_CLUSTER_NUM)
 
@@ -70,7 +71,7 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
   (ZB_ZCL_THERMOSTAT_REPORT_ATTR_COUNT + 11 + ZB_ZCL_OPENTHERM_REPORT_ATTR_COUNT + ZB_ZCL_TIME_REPORT_ATTR_COUNT)
 
 #define DECLARE_CLUSTER_LIST(cluster_list_name, basic_attr_list, thermostat_attr_list, opentherm_attr_list,            \
-                             time_attr_list)                                                                           \
+                             time_attr_list, diagnostics_attr_list)                                                    \
   zb_zcl_cluster_desc_t cluster_list_name[] = {                                                                        \
       ZB_ZCL_CLUSTER_DESC(ZB_ZCL_CLUSTER_ID_BASIC, ZB_ZCL_ARRAY_SIZE(basic_attr_list, zb_zcl_attr_t),                  \
                           (basic_attr_list), ZB_ZCL_CLUSTER_SERVER_ROLE, ZB_ZCL_MANUF_CODE_INVALID),                   \
@@ -80,6 +81,8 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
                           (opentherm_attr_list), ZB_ZCL_CLUSTER_SERVER_ROLE, ZB_ZCL_MANUF_CODE_INVALID),               \
       ZB_ZCL_CLUSTER_DESC(ZB_ZCL_CLUSTER_ID_TIME, ZB_ZCL_ARRAY_SIZE((time_attr_list), zb_zcl_attr_t),                  \
                           (time_attr_list), ZB_ZCL_CLUSTER_SERVER_ROLE, ZB_ZCL_MANUF_CODE_INVALID),                    \
+      ZB_ZCL_CLUSTER_DESC(ZB_ZCL_CLUSTER_ID_DIAGNOSTICS, ZB_ZCL_ARRAY_SIZE((diagnostics_attr_list), zb_zcl_attr_t),    \
+                          (diagnostics_attr_list), ZB_ZCL_CLUSTER_SERVER_ROLE, ZB_ZCL_MANUF_CODE_INVALID),             \
       ZB_ZCL_CLUSTER_DESC(ZB_ZCL_CLUSTER_ID_BASIC, ZB_ZCL_ARRAY_SIZE(basic_attr_list, zb_zcl_attr_t),                  \
                           (basic_attr_list), ZB_ZCL_CLUSTER_CLIENT_ROLE, ZB_ZCL_MANUF_CODE_INVALID),                   \
       ZB_ZCL_CLUSTER_DESC(ZB_ZCL_CLUSTER_ID_TIME, ZB_ZCL_ARRAY_SIZE((time_attr_list), zb_zcl_attr_t),                  \
@@ -98,8 +101,8 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
                            in_clust_num,                                                                               \
                            out_clust_num,                                                                              \
                            {ZB_ZCL_CLUSTER_ID_BASIC, ZB_ZCL_CLUSTER_ID_THERMOSTAT, ZB_ZCL_CLUSTER_ID_OPENTHERM,        \
-                            ZB_ZCL_CLUSTER_ID_TIME, ZB_ZCL_CLUSTER_ID_BASIC, ZB_ZCL_CLUSTER_ID_TIME,                   \
-                            ZB_ZCL_CLUSTER_ID_THERMOSTAT}}
+                            ZB_ZCL_CLUSTER_ID_TIME, ZB_ZCL_CLUSTER_ID_DIAGNOSTICS,                                     \
+                            ZB_ZCL_CLUSTER_ID_BASIC, ZB_ZCL_CLUSTER_ID_TIME, ZB_ZCL_CLUSTER_ID_THERMOSTAT}}
 
 #define DECLARE_SIMPLE_DESC_EMPTY(ep_name, ep_id)                                                                      \
   ZB_DECLARE_SIMPLE_DESC(0, 0);                                                                                        \
@@ -204,7 +207,7 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
 #define BASIC_POWER_SOURCE ZB_ZCL_BASIC_POWER_SOURCE_DC_SOURCE
 #define BASIC_LOCATION_DESC "Boiler"
 #define BASIC_PH_ENV ZB_ZCL_BASIC_ENV_UNSPECIFIED
-#define BASIC_SW_BUILD_ID "0.0.2"
+#define BASIC_SW_BUILD_ID "0.0.3"
 
 void reboot() {
   LOG_ERR("rebooting the device");
@@ -870,7 +873,9 @@ ZB_ZCL_DECLARE_TIME_ATTRIB_LIST(time_attr_list, dev_ctx.time.time.dptr(), dev_ct
                                 dev_ctx.time.standard_time.dptr(), dev_ctx.time.local_time.dptr(),
                                 dev_ctx.time.last_set_time.dptr(), dev_ctx.time.valid_until_time.dptr());
 
-DECLARE_CLUSTER_LIST(clusterlist, basic_attr_list, thermostat_attr_list, opentherm_attr_list, time_attr_list);
+ZB_ZCL_DECLARE_DIAGNOSTICS_ATTRIB_LIST(diagnostics_attr_list);
+
+DECLARE_CLUSTER_LIST(clusterlist, basic_attr_list, thermostat_attr_list, opentherm_attr_list, time_attr_list, diagnostics_attr_list);
 
 DECLARE_ENDPOINT(endpoint, ENDPOINT_ID, clusterlist);
 
@@ -928,6 +933,7 @@ static void initialize_clusters(void) {
   zb_zcl_time_init_server();
   zb_zcl_thermostat_init_server();
   zb_zcl_opentherm_init_server();
+  zb_zcl_diagnostics_init_server();
 }
 
 // The crudest RTC; a timer running at a 1sec period.
