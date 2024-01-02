@@ -9,9 +9,6 @@
 #include "serialization.h"
 
 namespace litt {
-
-// TODO: Get rid of log output
-
 template <size_t MAX_TRANSITIONS, typename TimerType, typename RealTimeType> class Scheduler {
 protected:
   static const constexpr uint32_t minutes_per_day = 60 * 24;
@@ -49,6 +46,8 @@ public:
     ITransition transitions[MAX_TRANSITIONS];
     size_t num_transitions = 0;
 
+    bool scheduling = false;
+
     bool serialize(uint8_t *buf, size_t size) const {
       using litt::serialize;
 
@@ -59,13 +58,16 @@ public:
         if (!serialize(transitions[i], buf, size))
           return false;
 
+      if (!serialize(scheduling, buf, size))
+        return false;
+
       return true;
     }
 
     bool deserialize(const uint8_t *buf, size_t size) {
       using litt::deserialize;
 
-      clear();
+      clear_schedule();
 
       if (!deserialize(num_transitions, buf, size))
         return false;
@@ -74,14 +76,17 @@ public:
         if (!deserialize(transitions[i], buf, size))
           return false;
 
+      if (!deserialize(scheduling, buf, size))
+        return false;
+
       return true;
     }
 
     size_t serialized_size() const {
-      return sizeof(num_transitions) + sizeof(scheduling) + num_transitions * sizeof(ITransition);
+      return sizeof(num_transitions) + num_transitions * sizeof(ITransition) + sizeof(scheduling);
     }
 
-    void clear() {
+    void clear_schedule() {
       for (size_t i = 0; i < MAX_TRANSITIONS; i++)
         transitions[i] = {};
       num_transitions = 0;
@@ -94,23 +99,23 @@ public:
   virtual ~Scheduler() = default;
 
   bool start_scheduling() {
-    if (scheduling)
+    if (configuration.scheduling)
       return true;
 
-    scheduling = true;
+    configuration.scheduling = true;
 
     if (next())
       on_scheduler_start();
     else
-      scheduling = false;
+      configuration.scheduling = false;
 
-    return scheduling;
+    return configuration.scheduling;
   }
 
   bool stop_scheduling() {
     timer.stop();
-    bool was_scheduling = scheduling;
-    scheduling = false;
+    bool was_scheduling = configuration.scheduling;
+    configuration.scheduling = false;
     if (was_scheduling)
       on_scheduler_stop();
     return true;
@@ -118,8 +123,10 @@ public:
 
   void clear_schedule() {
     stop_scheduling();
-    configuration.clear();
+    configuration.clear_schedule();
   }
+
+  bool have_schedule() { return configuration.num_transitions != 0; }
 
   struct Transition {
     uint16_t time = UINT16_MAX;
@@ -131,7 +138,7 @@ public:
     if (n >= MAX_TRANSITIONS)
       return false;
 
-    bool was_scheduling = scheduling;
+    bool was_scheduling = configuration.scheduling;
     stop_scheduling();
 
     // Note: All schedule entries for the days in `days` are deleted and only the new schedule entries in `ts` are kept
@@ -177,7 +184,7 @@ public:
   }
 
   void remove_schedule(uint8_t days) {
-    bool was_scheduling = scheduling;
+    bool was_scheduling = configuration.scheduling;
     stop_scheduling();
 
     size_t j = 0;
@@ -197,7 +204,7 @@ public:
       start_scheduling();
   }
 
-  bool is_scheduling() const { return scheduling; }
+  bool is_scheduling() const { return configuration.scheduling; }
 
   virtual void on_scheduler_start() {}
   virtual void on_scheduler_stop() {}
@@ -262,7 +269,6 @@ protected:
   Configuration &configuration;
   RealTimeType real_time;
   TimerType timer;
-  bool scheduling = false;
 
   static bool timer_cb(Timer *timer, void *obj) { return static_cast<Scheduler *>(obj)->on_timer_ftick(); }
 
@@ -311,7 +317,7 @@ protected:
   }
 
   bool next() {
-    if (!scheduling || configuration.num_transitions == 0)
+    if (!configuration.scheduling || configuration.num_transitions == 0)
       return false;
 
     uint8_t weekday;

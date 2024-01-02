@@ -24,10 +24,10 @@ extern "C" {
 #include <zb_osif.h>
 #include <zcl/zb_zcl_basic.h>
 #include <zcl/zb_zcl_common.h>
+#include <zcl/zb_zcl_diagnostics.h>
 #include <zcl/zb_zcl_reporting.h>
 #include <zcl/zb_zcl_thermostat.h>
 #include <zcl/zb_zcl_time.h>
-#include <zcl/zb_zcl_diagnostics.h>
 #include <zigbee/zigbee_app_utils.h>
 #include <zigbee/zigbee_error_handler.h>
 
@@ -101,8 +101,8 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
                            in_clust_num,                                                                               \
                            out_clust_num,                                                                              \
                            {ZB_ZCL_CLUSTER_ID_BASIC, ZB_ZCL_CLUSTER_ID_THERMOSTAT, ZB_ZCL_CLUSTER_ID_OPENTHERM,        \
-                            ZB_ZCL_CLUSTER_ID_TIME, ZB_ZCL_CLUSTER_ID_DIAGNOSTICS,                                     \
-                            ZB_ZCL_CLUSTER_ID_BASIC, ZB_ZCL_CLUSTER_ID_TIME, ZB_ZCL_CLUSTER_ID_THERMOSTAT}}
+                            ZB_ZCL_CLUSTER_ID_TIME, ZB_ZCL_CLUSTER_ID_DIAGNOSTICS, ZB_ZCL_CLUSTER_ID_BASIC,            \
+                            ZB_ZCL_CLUSTER_ID_TIME, ZB_ZCL_CLUSTER_ID_THERMOSTAT}}
 
 #define DECLARE_SIMPLE_DESC_EMPTY(ep_name, ep_id)                                                                      \
   ZB_DECLARE_SIMPLE_DESC(0, 0);                                                                                        \
@@ -305,8 +305,7 @@ static void read_demand_if_bound(zb_bufid_t bufid, zb_uint16_t nwk_addr, zb_ieee
     if (rsp->status == ZB_ZDP_STATUS_TIMEOUT) {
       LOG_DBG("zb_zdo_mgmt_bind_req timed out (tsn: %d)", rsp->tsn);
       zb_buf_free(bufid);
-    }
-    if (rsp->status != ZB_ZDP_STATUS_SUCCESS) {
+    } else if (rsp->status != ZB_ZDP_STATUS_SUCCESS) {
       LOG_DBG("zb_zdo_mgmt_bind_req failed (tsn: %d)", rsp->tsn);
       zb_buf_free(bufid);
     } else {
@@ -430,10 +429,7 @@ static void start_time_sync() {
   time_sync_in_progress = true;
 }
 
-zb_bool_t rtc_cb(zb_uint32_t time) {
-  LOG_WRN("rtc_cb");
-  return ZB_TRUE;
-}
+zb_bool_t rtc_cb(zb_uint32_t time) { return ZB_TRUE; }
 
 static bool zb_stack_initialised = false;
 static bool zb_joining_signal_received = false;
@@ -875,7 +871,8 @@ ZB_ZCL_DECLARE_TIME_ATTRIB_LIST(time_attr_list, dev_ctx.time.time.dptr(), dev_ct
 
 ZB_ZCL_DECLARE_DIAGNOSTICS_ATTRIB_LIST(diagnostics_attr_list);
 
-DECLARE_CLUSTER_LIST(clusterlist, basic_attr_list, thermostat_attr_list, opentherm_attr_list, time_attr_list, diagnostics_attr_list);
+DECLARE_CLUSTER_LIST(clusterlist, basic_attr_list, thermostat_attr_list, opentherm_attr_list, time_attr_list,
+                     diagnostics_attr_list);
 
 DECLARE_ENDPOINT(endpoint, ENDPOINT_ID, clusterlist);
 
@@ -1174,9 +1171,9 @@ public:
   MyApp(const ZephyrPins &pins)
       : RichApplication(transport),
 #ifdef USE_DEMAND_DRIVEN_THERMOSTAT
-        MyThermostat(configuration.thermostat, boiler.ch1, MyThermostat::MixingFunction::AVERAGE),
+        MyThermostat(configuration.thermostat, boiler.ch1),
 #else
-        MyThermostat(configuration.thermostat, boiler.ch1, {2.75f, 0.0f}, 21.0f, MyThermostat::MixingFunction::AVERAGE),
+        MyThermostat(configuration.thermostat, boiler.ch1, {2.75f, 0.0f}, 21.0f),
 #endif
         MyScheduler(configuration.scheduler), transport(pins, boiler.ch1), boiler(transport, *this),
         statistics_timer(30e6, 60 * 60 * 1e6, statistics_ftick, nullptr, this) {
@@ -1190,6 +1187,7 @@ public:
   virtual ~MyApp() = default;
 
   virtual void run() override {
+    auto mode = configuration.thermostat.mode;
     MyThermostat::on_mode_change(mode, mode);
 
     // Initial values for OpenTherm data IDs.
@@ -1205,6 +1203,16 @@ public:
                                     this, NULL, NULL, -10, K_ESSENTIAL, K_NO_WAIT);
 
     statistics_timer.start();
+  }
+
+  bool save_configuration() {
+    auto r = ZB_SCHEDULE_APP_CALLBACK(
+        [](zb_uint8_t) {
+          if (zb_nvram_write_dataset(ZB_NVRAM_APP_DATA1) != RET_OK)
+            LOG_DBG("failed to write configuration to nvram");
+        },
+        0);
+    return r == RET_OK;
   }
 
   virtual uint8_t transport_status() const { return transport.get_status(); }
@@ -1258,9 +1266,12 @@ public:
 #ifdef USE_DEMAND_DRIVEN_THERMOSTAT
       dev_ctx.thermostat.PI_heating_demand = (zb_uint8_t)roundf(mixed_demand() * 100.0f);
 #else
-// TODO
+      // TODO
 #endif
     }
+
+    if (from != to)
+      save_configuration();
   }
 
   virtual void on_spike_protect(bool on) override {
@@ -1327,9 +1338,12 @@ public:
     return r;
   }
 
-  virtual void on_mixing_function_change(MixingFunction function) override {
-    LOG_INF("mixing function := %s", mixing_function_name(function));
-    MyThermostat::on_mixing_function_change(function);
+  virtual void on_mixing_function_change(MixingFunction from, MixingFunction to) override {
+    LOG_INF("mixing function := %s", mixing_function_name(to));
+    MyThermostat::on_mixing_function_change(from, to);
+
+    if (from != to)
+      save_configuration();
   }
 
   virtual void set_opentherm_status(uint8_t status) {
@@ -1420,7 +1434,7 @@ public:
 
   virtual bool on_load_config_cmd(uint16_t user_data) { return false; }
 
-  virtual bool on_save_config_cmd(uint16_t user_data) { return false; }
+  virtual bool on_save_config_cmd(uint16_t user_data) { return save_configuration(); }
 
 #ifdef USE_DEMAND_DRIVEN_THERMOSTAT
   bool report_demand(const zb_ieee_addr_t &addr, uint8_t endpoint, float demand) {
@@ -1436,9 +1450,8 @@ public:
     uint8_t id = demander_addr2id(addr);
     rtrvs[id].local_temperature = temperature;
 
-    LOG_DBG("%s (%04x): %0.2f ~ %0.2f C", addr_to_string(addr),
-            zb_address_short_by_ieee(const_cast<zb_ieee_addr_t &>(addr)), rtrvs[id].local_temperature,
-            rtrvs[id].setpoint);
+    LOG_DBG("%s (%04x): %0.2f C", addr_to_string(addr),
+            zb_address_short_by_ieee(const_cast<zb_ieee_addr_t &>(addr)), rtrvs[id].local_temperature);
 
     if (isnan(rtrvs[id].setpoint))
       read_attribute(addr, endpoint, ZB_ZCL_CLUSTER_ID_THERMOSTAT, ZB_ZCL_ATTR_THERMOSTAT_OCCUPIED_HEATING_SETPOINT_ID);
@@ -1454,9 +1467,8 @@ public:
     uint8_t id = demander_addr2id(addr);
     rtrvs[id].setpoint = temperature;
 
-    LOG_DBG("%s (%04x): %0.2f ~ %0.2f C", addr_to_string(addr),
-            zb_address_short_by_ieee(const_cast<zb_ieee_addr_t &>(addr)), rtrvs[id].local_temperature,
-            rtrvs[id].setpoint);
+    LOG_DBG("%s (%04x): %0.2f C", addr_to_string(addr),
+            zb_address_short_by_ieee(const_cast<zb_ieee_addr_t &>(addr)), rtrvs[id].setpoint);
 
     if (isnan(rtrvs[id].local_temperature))
       read_attribute(addr, endpoint, ZB_ZCL_CLUSTER_ID_THERMOSTAT, ZB_ZCL_ATTR_THERMOSTAT_LOCAL_TEMPERATURE_ID);
@@ -1473,6 +1485,8 @@ public:
     MyScheduler::on_scheduler_start();
 
     dev_ctx.thermostat.programming_operation_mode |= ZB_ZCL_THERMOSTAT_SCHEDULE_PROGRAMMING_MODE_BIT;
+
+    save_configuration();
   }
 
   virtual void on_scheduler_stop() override {
@@ -1480,6 +1494,8 @@ public:
     MyScheduler::on_scheduler_stop();
 
     dev_ctx.thermostat.programming_operation_mode &= ~ZB_ZCL_THERMOSTAT_SCHEDULE_PROGRAMMING_MODE_BIT;
+
+    save_configuration();
   }
 
   virtual void on_scheduled_heat_setpoint_change(float temperature) override {
@@ -1641,19 +1657,20 @@ MyApp &app() {
 }
 
 static zb_bool_t zb_zcl_set_real_time_clock(zb_uint32_t time) {
+  bool first_time = !zb_utc_time_valid();
   bool is_different = dev_ctx.time.time == time;
-  bool was_scheduling = app().is_scheduling();
+  bool was_scheduling = app().is_scheduling() || (first_time && app().configuration.scheduler.scheduling);
 
   if (is_different && was_scheduling)
     app().stop_scheduling();
 
+  k_timer_stop(&rtc_timer);
   dev_ctx.time.time = time;
   dev_ctx.time.time_status = 0x02;
   // TODO: Add support for timezones?
-
   k_timer_start(&rtc_timer, K_NO_WAIT, K_SECONDS(1));
 
-  if (is_different && was_scheduling)
+  if ((is_different || first_time) && was_scheduling)
     app().start_scheduling();
 
   return ZB_TRUE;
@@ -1805,8 +1822,8 @@ static zb_ret_t handle_set_weekly_schedule(uint8_t bufid, const zb_zcl_parsed_hd
     if (was_scheduling)
       app().start_scheduling();
 
-    if (r == RET_OK)
-      r = ZB_SCHEDULE_APP_CALLBACK([](zb_uint8_t) { zb_nvram_write_dataset(ZB_NVRAM_APP_DATA1); }, 0);
+    if (r == RET_OK && !app().save_configuration())
+      r = RET_ERROR;
 
     return r;
   }
@@ -1972,12 +1989,6 @@ void report_attribute_cb(zb_zcl_addr_t *addr, zb_uint8_t ep, zb_uint16_t cluster
   }
 }
 
-void modify_attribute_cb(zb_uint8_t ep, zb_uint16_t cluster_id, zb_uint16_t attr_id, zb_uint8_t *value) {
-  LOG_INF("modify_attribute_cb");
-  // TODO: Save configuration?
-  // TODO: Save schedule?
-}
-
 void zb_nvram_read_config(zb_uint8_t page, zb_uint32_t pos, zb_uint16_t payload_length) {
   // LOG_DBG("zb_nvram_read_config: page=%08x pos=%08u payload_length=%u", page, pos, payload_length);
   uint8_t buf[payload_length];
@@ -2041,7 +2052,6 @@ static void start_zigbee() {
   ZB_ZCL_REGISTER_DEVICE_CB(zcl_device_cb);
   ZB_AF_REGISTER_DEVICE_CTX(&device_context);
   ZB_ZCL_SET_REPORT_ATTR_CB(report_attribute_cb);
-  ZB_ZCL_SET_MODIFY_ATTR_VALUE_CB(modify_attribute_cb);
   ZB_AF_SET_ENDPOINT_HANDLER(ENDPOINT_ID, zb_endpoint_handler);
   zb_nvram_register_app1_read_cb(zb_nvram_read_config);
   zb_nvram_register_app1_write_cb(zb_nvram_write_config, zb_nvram_get_config_size);
@@ -2149,7 +2159,7 @@ static int sh_cmd_mode(const struct shell *sh, size_t argc, char **argv) {
     auto m = static_cast<MyThermostat::Mode>(mode);
     app().set_mode(m);
 
-    if (app().get_mode() != m) {
+    if (app().configuration.thermostat.mode != m) {
       shell_fprintf(sh, SHELL_ERROR, "Failed to set mode\n");
       return 1;
     } else
@@ -2253,9 +2263,10 @@ static int sh_cmd_demanders(const struct shell *sh, size_t argc, char **argv) {
 }
 
 static int sh_cmd_set_mix(const struct shell *sh, size_t argc, char **argv) {
-  if (argc == 1)
-    shell_fprintf(sh, SHELL_INFO, "mixing function: %s\n", app().mixing_function_name(app().get_mixing_function()));
-  else if (argc == 2) {
+  if (argc == 1) {
+    auto fn = app().configuration.thermostat.mixing_function;
+    shell_fprintf(sh, SHELL_INFO, "mixing function: %s\n", app().mixing_function_name(fn));
+  } else if (argc == 2) {
     int mf = 0;
     if (sscanf(argv[1], "%02x", &mf) != 1 || mf >= static_cast<int>(MyThermostat::MixingFunction::INVALID)) {
       shell_fprintf(sh, SHELL_ERROR, "Invalid mixing function\n");
@@ -2263,8 +2274,7 @@ static int sh_cmd_set_mix(const struct shell *sh, size_t argc, char **argv) {
     }
     bool r = app().set_mixing_function(static_cast<MyThermostat::MixingFunction>(mf));
     return r ? 0 : 1;
-  }
-  else {
+  } else {
     shell_fprintf(sh, SHELL_ERROR, "Invalid number of arguments\n");
     return -EINVAL;
   }

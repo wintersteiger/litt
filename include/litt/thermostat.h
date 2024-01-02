@@ -57,23 +57,29 @@ public:
     bool spike_protection = true;
     float spike_protection_deadband = 10.0f;
 
+    Mode mode = Mode::OFF;
+
+    MixingFunction mixing_function = MixingFunction::FIRST;
+
     bool serialize(uint8_t *&buf, size_t &sz) const {
       using litt::serialize;
       return serialize(min_flow_setpoint, buf, sz) && serialize(tiny_cycle_minutes, buf, sz) &&
              serialize(short_cycle_minutes, buf, sz) && serialize(spike_protection, buf, sz) &&
-             serialize(spike_protection_deadband, buf, sz);
+             serialize(spike_protection_deadband, buf, sz) && serialize(mode, buf, sz) &&
+             serialize(mixing_function, buf, sz);
     }
 
     bool deserialize(const uint8_t *&buf, size_t &sz) {
       using litt::deserialize;
       return deserialize(min_flow_setpoint, buf, sz) && deserialize(tiny_cycle_minutes, buf, sz) &&
              deserialize(short_cycle_minutes, buf, sz) && deserialize(spike_protection, buf, sz) &&
-             deserialize(spike_protection_deadband, buf, sz);
+             deserialize(spike_protection_deadband, buf, sz) && deserialize(mode, buf, sz) &&
+             deserialize(mixing_function, buf, sz);
     }
 
     size_t serialized_size() const {
       return sizeof(min_flow_setpoint) + sizeof(tiny_cycle_minutes) + sizeof(short_cycle_minutes) +
-             sizeof(spike_protection) + sizeof(spike_protection_deadband);
+             sizeof(spike_protection) + sizeof(spike_protection_deadband) + sizeof(mode) + sizeof(mixing_function);
     }
   };
 #pragma pack(pop)
@@ -83,19 +89,16 @@ public:
     uint32_t num_spike_protected = 0;
   } statistics;
 
-  Thermostat(Configuration &configuration, CentralHeatingInterface &chif,
-             MixingFunction mixing_function = MixingFunction::FIRST)
-      : configuration(configuration), chif(chif), mode(Mode::OFF), mixing_function(mixing_function),
-        tiny_cycle_protect_timer(tiny_cycle_protect_timer_cb, this) {
+  Thermostat(Configuration &configuration, CentralHeatingInterface &chif)
+      : configuration(configuration), chif(chif), tiny_cycle_protect_timer(tiny_cycle_protect_timer_cb, this) {
     manual_setpoint = configuration.min_flow_setpoint;
   }
 
   virtual ~Thermostat() {}
 
-  Mode get_mode() const { return mode; }
-  bool is_off() const { return mode == Mode::OFF; }
-  bool is_manual() const { return mode == Mode::MANUAL; }
-  bool is_automatic() const { return mode == Mode::AUTOMATIC; }
+  bool is_off() const { return configuration.mode == Mode::OFF; }
+  bool is_manual() const { return configuration.mode == Mode::MANUAL; }
+  bool is_automatic() const { return configuration.mode == Mode::AUTOMATIC; }
 
   /// @brief String representation of an operating mode.
   /// @param mode mode to convert to a string
@@ -115,16 +118,16 @@ public:
 
   /// @brief String representation of the current operating mode.
   /// @return a string
-  const char *get_mode_string() const { return mode_string(mode); }
+  const char *get_mode_string() const { return mode_string(configuration.mode); }
 
   /// @brief Sets the operating mode of the thermostat.
   /// @param m new operating mode
   void set_mode(Mode m) {
     if (m >= Mode::INVALID)
       m = Mode::OFF;
-    Mode old_m = mode;
-    mode = m;
-    on_mode_change(old_m, mode);
+    Mode old_m = configuration.mode;
+    configuration.mode = m;
+    on_mode_change(old_m, configuration.mode);
   }
 
   /// @brief Called when the operating mode of the thermostat changes.
@@ -132,7 +135,7 @@ public:
   /// @param to new operating mode
   /// @note The new mode is not necessarily different from the previous one (e.g. during initialization).
   virtual void on_mode_change(Mode from, Mode to) {
-    mode = to;
+    configuration.mode = to;
 
     switch (to) {
     case Mode::OFF:
@@ -206,7 +209,7 @@ public:
   /// @param approximated true if the setpoint was approximated (e.g. interpolated)
   /// @note The new flow setpoint is not necessarily different from the previous one.
   virtual void on_flow_setpoint_change(float from, float to, bool approximated) {
-    switch (mode) {
+    switch (configuration.mode) {
     case Mode::OFF:
       chif.set_flow_setpoint(configuration.min_flow_setpoint);
       break;
@@ -252,7 +255,7 @@ public:
     if (temperature < 0.0f || temperature > 100.0f || isnan(temperature))
       return false;
     manual_setpoint = temperature;
-    if (mode != Mode::MANUAL)
+    if (configuration.mode != Mode::MANUAL)
       set_mode(Mode::MANUAL);
     return true;
   }
@@ -274,24 +277,24 @@ public:
     return true;
   }
 
-  /// @brief Retrieve the mixing function.
-  /// @return the mixing function
-  virtual MixingFunction get_mixing_function() const { return mixing_function; }
-
   /// @brief Set the mixing function.
   /// @param function the mixing function
   /// @return true if the command was executed successfully, false otherwise
   virtual bool set_mixing_function(MixingFunction function) {
     if (function >= MixingFunction::INVALID)
       return false;
-    if (mixing_function != function)
-      on_mixing_function_change(function);
-    mixing_function = function;
+    FlowSetpointUpdater u(*this, false);
+    auto before = configuration.mixing_function;
+    if (before != function)
+      on_mixing_function_change(before, function);
+    configuration.mixing_function = function;
     return true;
   }
 
   /// @brief Called when the mixing function changes.
-  virtual void on_mixing_function_change(MixingFunction function) {}
+  /// @param from previous mixing function
+  /// @param to new mixing function
+  virtual void on_mixing_function_change(MixingFunction from, MixingFunction to) {}
 
   /// @brief Called to execute a mixing function change command.
   /// @param user_data user-defined data associated with the command
@@ -302,7 +305,7 @@ public:
   }
 
   static const char *mixing_function_name(MixingFunction function) {
-    const char *function_names[] = { "first", "max", "average" };
+    const char *function_names[] = {"first", "max", "average"};
     uint8_t mfi = static_cast<uint8_t>(function);
     return function >= MixingFunction::INVALID ? "invalid" : function_names[mfi];
   }
@@ -333,12 +336,9 @@ public:
   }
 
 protected:
-  Configuration &configuration;
   TimeType time;
+  Configuration &configuration;
   CentralHeatingInterface &chif;
-
-  Mode mode;
-  MixingFunction mixing_function;
 
   float manual_setpoint = 30.0f;
 
@@ -437,14 +437,13 @@ public:
   using RTATT = RoomTemperatureApproximation<NUM_PIDS, TimeType>;
   using Base = Thermostat<NUM_PIDS, TimeType, TimerType>;
 
+  using Base::configuration;
   using typename Base::FlowSetpointUpdater;
   using typename Base::Mode;
 
   PIDDrivenThermostat(typename Base::Configuration &configuration, CentralHeatingInterface &chif,
-                      float const (&weights)[NUM_PIDS], float default_setpoint = 21.0f,
-                      typename Base::MixingFunction mixing_function = Base::MixingFunction::FIRST)
-      : Base(configuration, chif, mixing_function), pid_timer(10e6, 10e6, on_pid_timer_cb, nullptr, this),
-        rta(time, default_setpoint) {
+                      float const (&weights)[NUM_PIDS], float default_setpoint = 21.0f)
+      : Base(configuration, chif), pid_timer(10e6, 10e6, on_pid_timer_cb, nullptr, this), rta(time, default_setpoint) {
     for (size_t i = 0; i < NUM_PIDS; i++) {
       pids[i] = PIDController<TimeType>(default_setpoint, {8.0f, 0.01875f, 0.01f}, 0.0f, 100.0f);
       this->weights[i] = weights[i];
@@ -455,7 +454,7 @@ public:
 
   virtual float flow_setpoint() override {
     if (Base::is_automatic()) {
-      switch (mixing_function) {
+      switch (configuration.mixing_function) {
       case Base::MixingFunction::MAX:
         return flow_setpoint_from_pids_max();
       case Base::MixingFunction::AVERAGE:
@@ -647,8 +646,6 @@ protected:
   float weights[NUM_PIDS];
   TimerType pid_timer;
 
-  using Base::mixing_function;
-  using Base::mode;
   using Base::time;
 
   // Extrapolation<2> rta;
@@ -660,7 +657,7 @@ protected:
   };
 
   bool on_pid_timer(Timer *) {
-    if (mode != Base::Mode::MANUAL) {
+    if (!Base::is_manual()) {
       FlowSetpointUpdater u(*this, true);
       for (size_t i = 0; i < NUM_PIDS; i++)
         pids[i].update_unchanged();
@@ -725,9 +722,8 @@ public:
     float before;
   };
 
-  DemandDrivenThermostat(typename Base::Configuration &configuration, CentralHeatingInterface &chif,
-                         MixingFunction mixing_function = MixingFunction::MAX)
-      : Base(configuration, chif, mixing_function) {}
+  DemandDrivenThermostat(typename Base::Configuration &configuration, CentralHeatingInterface &chif)
+      : Base(configuration, chif) {}
 
   virtual ~DemandDrivenThermostat() = default;
 
@@ -783,6 +779,7 @@ public:
   }
 
 protected:
+  using Base::configuration;
   using Base::max_flow_setpoint;
   using Base::time;
   uint8_t max_id_seen = 0;
@@ -812,7 +809,7 @@ protected:
   virtual bool on_demand_report_cmd(uint16_t user_data, uint8_t id, float demand) { return report_demand(id, demand); }
 
   float mixed_demand() const {
-    switch (Base::mixing_function) {
+    switch (configuration.mixing_function) {
     case Base::MixingFunction::AVERAGE: {
       double sum = 0.0;
       size_t n = 0;
