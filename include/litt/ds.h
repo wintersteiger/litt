@@ -70,6 +70,8 @@ public:
     start(delay_us);
   }
 
+  virtual bool is_running() = 0;
+
   Timer &operator=(Timer &) = delete;
 
 protected:

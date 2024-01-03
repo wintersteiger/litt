@@ -23,7 +23,7 @@ public:
   }
 
   virtual ~ZephyrTimer() {
-    if (running)
+    if (is_running())
       stop(true);
   }
 
@@ -34,17 +34,19 @@ public:
       k_timer_start(&timer, K_USEC(period_us), K_USEC(period_us));
     else
       k_timer_start(&timer, K_USEC(delay_us), K_USEC(period_us));
-    running = true;
   }
 
   virtual void stop(bool run_fstop = true) override {
     this->run_fstop = run_fstop;
     k_timer_stop(&timer);
-    running = false;
+
+  }
+
+  virtual bool is_running() override {
+    return k_timer_remaining_get(&timer) != 0;
   }
 
 protected:
-  bool running = false;
   bool run_fstop = true;
 
   struct k_timer timer;

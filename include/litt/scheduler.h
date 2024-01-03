@@ -99,7 +99,7 @@ public:
   virtual ~Scheduler() = default;
 
   bool start_scheduling() {
-    if (configuration.scheduling)
+    if (configuration.scheduling && timer.is_running())
       return true;
 
     configuration.scheduling = true;

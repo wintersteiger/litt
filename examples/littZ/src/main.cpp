@@ -959,8 +959,8 @@ static void zb_zcl_time_sync_time_server_found_cb(zb_ret_t status, zb_uint32_t a
     if (dev_ctx.time.time == ZB_ZCL_TIME_TIME_INVALID_VALUE)
       ZB_SCHEDULE_APP_CALLBACK([](uint8_t) { start_time_sync(); }, 0);
   } else if (status == RET_OK) {
-    zb_zcl_set_real_time_clock(nw_time);
     LOG_INF("received network time from %04x:%u", short_addr, ep);
+    zb_zcl_set_real_time_clock(nw_time);
   } else {
     LOG_WRN("time sync: status=%u auth_level=%u short_addr=%04x ep=%u nw_time=%08x", status, auth_level, short_addr, ep,
             nw_time);

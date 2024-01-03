@@ -56,6 +56,8 @@ public:
       fstop(this, data);
   }
 
+  virtual bool is_running() override { return running; }
+
 protected:
   bool running = false;
   static alarm_pool_t *alarm_pool;
