@@ -49,24 +49,47 @@ public:
 
 #pragma pack(push, 1)
   struct Configuration {
+    // Minimum flow setpoint [C]
     float min_flow_setpoint = 30.0f;
 
+    // Tiny cycle classification threshold
     float tiny_cycle_minutes = 1.0f;
+
+    // Short cycle classification threshold
     float short_cycle_minutes = 8.0f;
 
+    // Spike protection
     bool spike_protection = true;
+
+    // Spike protection deadband
     float spike_protection_deadband = 10.0f;
 
+    // Operating mode
     Mode mode = Mode::OFF;
 
+    // Mixing function
     MixingFunction mixing_function = MixingFunction::FIRST;
+
+    // A reference temperature for selection of the weather compensation curve [C].
+    // (Ideal calls this the "room temperature setpoint", others use an index number.)
+    float weather_compensation_ref_temp = 21.0f;
+
+    // The heat loss constant for your house.
+    // This is (U-Value [W/((m^2)K)] * Area [m^2] / Radiator output [W/K]) * dT [K].
+    float heat_loss_constant = 5.5f;
+
+    // Radiator exponent, e.g. 1.3 - 1.4 for normal radiators (see specifications).
+    // (Depends on the ratio between radiation and convection?)
+    // (Roughly, aluminium closer to 1.4, steel closer to 1.3.)
+    float radiator_exponent = 1.3f;
 
     bool serialize(uint8_t *&buf, size_t &sz) const {
       using litt::serialize;
       return serialize(min_flow_setpoint, buf, sz) && serialize(tiny_cycle_minutes, buf, sz) &&
              serialize(short_cycle_minutes, buf, sz) && serialize(spike_protection, buf, sz) &&
              serialize(spike_protection_deadband, buf, sz) && serialize(mode, buf, sz) &&
-             serialize(mixing_function, buf, sz);
+             serialize(mixing_function, buf, sz) && serialize(weather_compensation_ref_temp, buf, sz) &&
+             serialize(heat_loss_constant, buf, sz) && serialize(radiator_exponent, buf, sz);
     }
 
     bool deserialize(const uint8_t *&buf, size_t &sz) {
@@ -74,19 +97,21 @@ public:
       return deserialize(min_flow_setpoint, buf, sz) && deserialize(tiny_cycle_minutes, buf, sz) &&
              deserialize(short_cycle_minutes, buf, sz) && deserialize(spike_protection, buf, sz) &&
              deserialize(spike_protection_deadband, buf, sz) && deserialize(mode, buf, sz) &&
-             deserialize(mixing_function, buf, sz);
+             deserialize(mixing_function, buf, sz) && deserialize(weather_compensation_ref_temp, buf, sz) &&
+             deserialize(heat_loss_constant, buf, sz) && deserialize(radiator_exponent, buf, sz);
     }
 
     size_t serialized_size() const {
       return sizeof(min_flow_setpoint) + sizeof(tiny_cycle_minutes) + sizeof(short_cycle_minutes) +
-             sizeof(spike_protection) + sizeof(spike_protection_deadband) + sizeof(mode) + sizeof(mixing_function);
+             sizeof(spike_protection) + sizeof(spike_protection_deadband) + sizeof(mode) + sizeof(mixing_function) +
+             sizeof(weather_compensation_ref_temp) + sizeof(heat_loss_constant) + sizeof(radiator_exponent);
     }
   };
 #pragma pack(pop)
 
   struct Statistics {
     uint64_t tiny_cycles = 0, short_cycles = 0, normal_cycles = 0;
-    uint32_t num_spike_protected = 0;
+    uint32_t num_spike_protected = 0, num_tiny_cycle_protected = 0;
   } statistics;
 
   Thermostat(Configuration &configuration, CentralHeatingInterface &chif)
@@ -248,6 +273,10 @@ public:
   /// @return true if spike protection is active, false otherwise
   bool is_spike_protect_active() const { return spike_protect_active; }
 
+  /// @brief Called when tiny cycle protection is activated or deactivated.
+  /// @param on true if tiny cycle protection is now active, false otherwise
+  virtual void on_tiny_cycle_protect(bool on) {}
+
   /// @brief Sets the flow setpoint and changes the mode to manual.
   /// @param temperature
   /// @return true if successful, false otherwise
@@ -257,6 +286,8 @@ public:
     manual_setpoint = temperature;
     if (configuration.mode != Mode::MANUAL)
       set_mode(Mode::MANUAL);
+    else
+      on_flow_setpoint_change(manual_setpoint, manual_setpoint, false);
     return true;
   }
 
@@ -310,6 +341,21 @@ public:
     return function >= MixingFunction::INVALID ? "invalid" : function_names[mfi];
   }
 
+  /// @brief Called when the outside air temperature changes.
+  /// @param from the previous outside air temperature.
+  /// @param to the new outside air temperature.
+  virtual void on_outside_air_temperature_change(float from, float to) { outside_air_temperature = to; }
+
+  /// @brief Computes the weather-compensated flow setpoint.
+  /// @return The weather-compensated flow setpoint.
+  virtual float weather_compensated_flow_setpoint() const {
+    const float c = configuration.heat_loss_constant;
+    const float rt = configuration.weather_compensation_ref_temp;
+    const float dt = rt - outside_air_temperature;
+    const float r = pow(c, 1.0f / 1.3f) * pow(dt, 1.0f / 1.3f) + 5 + rt; // +5 = dT/2. Remove?
+    return isnormal(r) ? r : configuration.min_flow_setpoint;
+  }
+
   /// @brief Executes a command.
   /// @param f command frame
   /// @return true if the command was executed successfully, false otherwise
@@ -344,6 +390,8 @@ protected:
 
   float max_flow_setpoint = 80.0f;
 
+  float outside_air_temperature = nanf("");
+
   uint64_t flame_on_time = 0;
 
   bool spike_protect_active = false;
@@ -369,6 +417,8 @@ protected:
     if (!tiny_cycle_protect_active) {
       tiny_cycle_protect_active = true;
       tiny_cycle_protect_timer.start(configuration.short_cycle_minutes * 60.0f * 1e6f);
+      statistics.num_tiny_cycle_protected++;
+      on_tiny_cycle_protect(true);
     }
   }
 
@@ -376,6 +426,7 @@ protected:
     if (tiny_cycle_protect_active) {
       tiny_cycle_protect_timer.stop();
       tiny_cycle_protect_active = false;
+      on_tiny_cycle_protect(false);
     }
   }
 
@@ -416,13 +467,8 @@ protected:
   }
 
   virtual bool on_tiny_cycle_protect_ftick() {
-    tiny_cycle_protect_active = false;
-    tiny_cycle_protect_timer.stop();
-
-    auto from = chif.flow_setpoint();
-    auto to = flow_setpoint();
-    if (from != to)
-      on_flow_setpoint_change(from, to, false);
+    FlowSetpointUpdater u(*this, false);
+    disengage_tiny_cycle_protect();
     return true;
   }
 };
@@ -737,10 +783,10 @@ public:
 
   virtual float flow_setpoint() override {
     if (Base::is_automatic()) {
-      float t = mixed_demand();
-      float range = max_flow_setpoint - 21.0f;
-      float r = 21.0f + (t * range);
-      // float r = t * max_flow_setpoint;
+      const float wcsp = Base::weather_compensated_flow_setpoint();
+      const float t = mixed_demand();
+      const float range = max_flow_setpoint - wcsp;
+      const float r = wcsp + (t * range);
       return fmaxf(fminf(r, max_flow_setpoint), Base::configuration.min_flow_setpoint);
     } else
       return Base::flow_setpoint();

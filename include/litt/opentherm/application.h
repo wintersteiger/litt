@@ -417,7 +417,7 @@ public:
   /// @brief Called when a change in outside temperature is detected.
   /// @param from previous outside temperature
   /// @param to new outside temperature
-  virtual void on_outside_temperature_change(float from, float to) {}
+  virtual void on_outside_air_temperature_change(float from, float to) {}
 
   virtual void on_read_ack(uint8_t data_id, uint16_t data_value) override {
     using namespace OpenTherm;
@@ -466,7 +466,7 @@ public:
       break;
     case 27:
       if (changed)
-        on_outside_temperature_change(to_f88(before_value), to_f88(data_value));
+        on_outside_air_temperature_change(to_f88(before_value), to_f88(data_value));
       break;
     case 28:
       if (changed)

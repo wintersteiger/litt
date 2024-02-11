@@ -123,6 +123,9 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
 #define ZB_ZCL_ATTR_THERMOSTAT_SHORT_CYCLES_ID 0xFF03
 #define ZB_ZCL_ATTR_THERMOSTAT_NORMAL_CYCLES_ID 0xFF04
 #define ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLE_PROTECTION_COUNT_ID 0xFF05
+#define ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID 0xFF06
+#define ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID 0xFF07
+#define ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID 0xFF08
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_EXTRA_STATUS_ID(data_ptr)                                        \
   {                                                                                                                    \
@@ -154,6 +157,27 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
         ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (void *)data_ptr                                  \
   }
 
+#define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLE_PROTECTION_COUNT_ID(data_ptr)                         \
+  {                                                                                                                    \
+    ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLE_PROTECTION_COUNT_ID, ZB_ZCL_ATTR_TYPE_U32,                                       \
+        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (void *)data_ptr                                  \
+  }
+
+#define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID(data_ptr)                       \
+  {                                                                                                                    \
+    ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID, ZB_ZCL_ATTR_TYPE_U16, ZB_ZCL_ATTR_ACCESS_READ_WRITE,      \
+        (void *)data_ptr                                                                                               \
+  }
+
+#define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID(data_ptr)                                  \
+  {                                                                                                                    \
+    ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID, ZB_ZCL_ATTR_TYPE_U16, ZB_ZCL_ATTR_ACCESS_READ_WRITE,                 \
+        (void *)data_ptr                                                                                               \
+  }
+
+#define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID(data_ptr)                                   \
+  { ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID, ZB_ZCL_ATTR_TYPE_U16, ZB_ZCL_ATTR_ACCESS_READ_WRITE, (void *)data_ptr }
+
 #define ZB_ZCL_DECLARE_THERMOSTAT_ATTRIB_LIST_EXT_PLUS(                                                                \
     attr_list, local_temperature, outdoor_temperature, abs_min_heat_setpoint_limit, abs_max_heat_setpoint_limit,       \
     abs_min_cool_setpoint_limit, abs_max_cool_setpoint_limit, PI_cooling_demand, PI_heating_demand,                    \
@@ -161,7 +185,8 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
     occupied_heating_setpoint, unoccupied_cooling_setpoint, unoccupied_heating_setpoint, min_heat_setpoint_limit,      \
     max_heat_setpoint_limit, min_cool_setpoint_limit, max_cool_setpoint_limit, min_setpoint_dead_band, remote_sensing, \
     control_seq_of_operation, system_mode, start_of_week, number_of_weekly_transitions, number_of_daily_transitions,   \
-    programming_operation_mode, extra_status, spike_protection_count, tiny_cycles, short_cycles, normal_cycles)        \
+    programming_operation_mode, extra_status, spike_protection_count, tiny_cycles, short_cycles, normal_cycles,        \
+    tiny_cycle_protection_count, weather_compensation_ref_temp, heat_loss_constant, radiator_exponent)                 \
   ZB_ZCL_START_DECLARE_ATTRIB_LIST_CLUSTER_REVISION(attr_list, ZB_ZCL_THERMOSTAT)                                      \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_LOCAL_TEMPERATURE_ID, (local_temperature))                               \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_OUTDOOR_TEMPERATURE_ID, (outdoor_temperature))                           \
@@ -194,6 +219,10 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLES_ID, (tiny_cycles))                                           \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_SHORT_CYCLES_ID, (short_cycles))                                         \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_NORMAL_CYCLES_ID, (normal_cycles))                                       \
+  ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLE_PROTECTION_COUNT_ID, (tiny_cycle_protection_count))           \
+  ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID, (weather_compensation_ref_temp))       \
+  ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID, (heat_loss_constant))                             \
+  ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID, (radiator_exponent))                               \
   ZB_ZCL_FINISH_DECLARE_ATTRIB_LIST
 
 #define ENDPOINT_ID 1
@@ -279,6 +308,8 @@ static void read_attribute(const zb_ieee_addr_t &addr, zb_uint8_t ep, zb_uint16_
     LOG_WRN("zb_buf_get_out_delayed failed: %d", r);
 }
 
+bool is_known(const zb_ieee_addr_t addr);
+
 static void read_demand(const zb_ieee_addr_t &addr, zb_uint8_t ep) {
   read_attribute(addr, ep, ZB_ZCL_CLUSTER_ID_THERMOSTAT, ZB_ZCL_ATTR_THERMOSTAT_PI_HEATING_DEMAND_ID);
 }
@@ -290,6 +321,9 @@ static void read_demand_if_bound(zb_bufid_t bufid, zb_uint16_t nwk_addr, zb_ieee
     zb_buf_free(bufid);
     return;
   }
+
+  if (start_index == 0 && is_known(ieee_addr))
+    return;
 
   zb_zdo_mgmt_bind_param_t *req = ZB_BUF_GET_PARAM(bufid, zb_zdo_mgmt_bind_param_t);
   req->dst_addr = nwk_addr;
@@ -359,12 +393,11 @@ static void read_demand_from_bound_thermostats() {
          zb_zdo_match_desc_param_t *req = (zb_zdo_match_desc_param_t *)zb_buf_initial_alloc(
              bufid, sizeof(zb_zdo_match_desc_param_t) + sizeof(zb_uint16_t));
          req->nwk_addr = ZB_NWK_BROADCAST_ALL_DEVICES;
-         req->addr_of_interest = req->nwk_addr;
+         req->addr_of_interest = ZB_NWK_BROADCAST_RX_ON_WHEN_IDLE;
          req->profile_id = ZB_AF_HA_PROFILE_ID;
          req->num_in_clusters = 1;
-         req->num_out_clusters = 1;
+         req->num_out_clusters = 0;
          req->cluster_list[0] = ZB_ZCL_CLUSTER_ID_THERMOSTAT;
-         req->cluster_list[1] = ZB_ZCL_CLUSTER_ID_THERMOSTAT;
 
          auto r = zb_zdo_match_desc_req(bufid, [](zb_bufid_t bufid) {
            auto *mdr = (zb_zdo_match_desc_resp_t *)zb_buf_begin(bufid);
@@ -389,7 +422,8 @@ static void read_demand_from_bound_thermostats() {
                    ZB_64BIT_ADDR_COPY(rsp->ieee_addr_remote_dev, ieee_addr);
                    zb_uint16_t nwk_addr = rsp->nwk_addr_remote_dev;
                    zb_buf_reuse(bufid);
-                   read_demand_if_bound(bufid, nwk_addr, ieee_addr, 0);
+                   if (!is_known(ieee_addr))
+                     read_demand_if_bound(bufid, nwk_addr, ieee_addr, 0);
                  } else {
                    LOG_DBG("zb_zdo_ieee_addr_req failed (tsn: %u)", rsp->tsn);
                    zb_buf_free(bufid);
@@ -778,6 +812,16 @@ struct zb_zcl_thermostat_attrs_rich_t {
   Attribute<zb_uint32_t> tiny_cycles = Attribute<zb_uint32_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLES_ID, 0);
   Attribute<zb_uint32_t> short_cycles = Attribute<zb_uint32_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_SHORT_CYCLES_ID, 0);
   Attribute<zb_uint32_t> normal_cycles = Attribute<zb_uint32_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_NORMAL_CYCLES_ID, 0);
+
+  Attribute<zb_uint32_t> tiny_cycle_protection_count =
+      Attribute<zb_uint32_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLE_PROTECTION_COUNT_ID, 0);
+
+  Attribute<zb_uint16_t> weather_compensation_ref_temp =
+      Attribute<zb_uint16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID, 2100);
+  Attribute<zb_uint16_t> heat_loss_constant =
+      Attribute<zb_uint16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID, 550);
+  Attribute<zb_uint16_t> radiator_exponent =
+      Attribute<zb_uint16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID, 130);
 };
 
 struct zb_zcl_opentherm_attrs_rich_t {
@@ -853,7 +897,9 @@ ZB_ZCL_DECLARE_THERMOSTAT_ATTRIB_LIST_EXT_PLUS(
     dev_ctx.thermostat.number_of_daily_transitions.dptr(), dev_ctx.thermostat.programming_operation_mode.dptr(),
     dev_ctx.thermostat.extra_status.dptr(), dev_ctx.thermostat.spike_protection_count.dptr(),
     dev_ctx.thermostat.tiny_cycles.dptr(), dev_ctx.thermostat.short_cycles.dptr(),
-    dev_ctx.thermostat.normal_cycles.dptr());
+    dev_ctx.thermostat.normal_cycles.dptr(), dev_ctx.thermostat.tiny_cycle_protection_count.dptr(),
+    dev_ctx.thermostat.weather_compensation_ref_temp.dptr(), dev_ctx.thermostat.heat_loss_constant.dptr(),
+    dev_ctx.thermostat.radiator_exponent.dptr());
 
 ZB_ZCL_DECLARE_OPENTHERM_ATTRIB_LIST(opentherm_attr_list, dev_ctx.opentherm.version.dptr(),
                                      dev_ctx.opentherm.status.dptr(), dev_ctx.opentherm.flow_setpoint.dptr(),
@@ -1158,7 +1204,13 @@ class MyApp : public RichApplication, public MyThermostat, public MyScheduler {
     }
 
     bool deserialize(const uint8_t *buf, size_t sz) {
-      return thermostat.deserialize(buf, sz) && scheduler.deserialize(buf, sz);
+      auto r = thermostat.deserialize(buf, sz) && scheduler.deserialize(buf, sz);
+      if (r) {
+        dev_ctx.thermostat.weather_compensation_ref_temp = thermostat.weather_compensation_ref_temp * 100;
+        dev_ctx.thermostat.heat_loss_constant = thermostat.heat_loss_constant * 100;
+        dev_ctx.thermostat.radiator_exponent = thermostat.radiator_exponent * 100;
+      }
+      return r;
     }
 
     size_t serialized_size() const { return thermostat.serialized_size() + scheduler.serialized_size(); }
@@ -1188,7 +1240,7 @@ public:
 
   virtual void run() override {
     auto mode = configuration.thermostat.mode;
-    MyThermostat::on_mode_change(mode, mode);
+    on_mode_change(mode, mode);
 
     // Initial values for OpenTherm data IDs.
     tset = MyThermostat::flow_setpoint();
@@ -1285,6 +1337,17 @@ public:
       dev_ctx.thermostat.extra_status &= 0xFFFFFFFE;
   }
 
+  virtual void on_tiny_cycle_protect(bool on) override {
+    LOG_INF("tiny cycle protect := %s", on ? "on" : "off");
+    MyThermostat::on_tiny_cycle_protect(on);
+
+    if (on) {
+      dev_ctx.thermostat.extra_status |= 0x00000002;
+      dev_ctx.thermostat.tiny_cycle_protection_count = statistics.num_tiny_cycle_protected;
+    } else
+      dev_ctx.thermostat.extra_status &= 0xFFFFFFFD;
+  }
+
   virtual void on_max_flow_setpoint_bounds_change(const FlowSetpointBounds &from,
                                                   const FlowSetpointBounds &to) override {
     LOG_DBG("max flow setpoint bounds := [%u,%u]", to.lower_bound, to.upper_bound);
@@ -1327,9 +1390,15 @@ public:
   }
 #endif
 
-  virtual void on_outside_temperature_change(float from, float to) override {
-    RichApplication::on_outside_temperature_change(from, to);
+  virtual void on_outside_air_temperature_change(float from, float to) override {
+    // TODO: Add thermostat client on endpoint 2 for reports of outside air temperature via network?
+    LOG_DBG("outside air temperature := %0.2f", to);
+    RichApplication::on_outside_air_temperature_change(from, to);
+    MyThermostat::on_outside_air_temperature_change(from, to);
     dev_ctx.thermostat.outdoor_temperature = (zb_uint16_t)roundf(to * 100.0f);
+
+    if (from != to)
+      LOG_INF("weather compensated setpoint := %0.2f", weather_compensated_flow_setpoint());
   }
 
   virtual bool process(const Frame &f) override {
@@ -1450,8 +1519,8 @@ public:
     uint8_t id = demander_addr2id(addr);
     rtrvs[id].local_temperature = temperature;
 
-    LOG_DBG("%s (%04x): %0.2f C", addr_to_string(addr),
-            zb_address_short_by_ieee(const_cast<zb_ieee_addr_t &>(addr)), rtrvs[id].local_temperature);
+    LOG_DBG("%s (%04x): %0.2f C", addr_to_string(addr), zb_address_short_by_ieee(const_cast<zb_ieee_addr_t &>(addr)),
+            rtrvs[id].local_temperature);
 
     if (isnan(rtrvs[id].setpoint))
       read_attribute(addr, endpoint, ZB_ZCL_CLUSTER_ID_THERMOSTAT, ZB_ZCL_ATTR_THERMOSTAT_OCCUPIED_HEATING_SETPOINT_ID);
@@ -1467,8 +1536,8 @@ public:
     uint8_t id = demander_addr2id(addr);
     rtrvs[id].setpoint = temperature;
 
-    LOG_DBG("%s (%04x): %0.2f C", addr_to_string(addr),
-            zb_address_short_by_ieee(const_cast<zb_ieee_addr_t &>(addr)), rtrvs[id].setpoint);
+    LOG_DBG("%s (%04x): %0.2f C", addr_to_string(addr), zb_address_short_by_ieee(const_cast<zb_ieee_addr_t &>(addr)),
+            rtrvs[id].setpoint);
 
     if (isnan(rtrvs[id].local_temperature))
       read_attribute(addr, endpoint, ZB_ZCL_CLUSTER_ID_THERMOSTAT, ZB_ZCL_ATTR_THERMOSTAT_LOCAL_TEMPERATURE_ID);
@@ -1506,6 +1575,10 @@ public:
     LOG_DBG("(scheduled) mode := %s (t=%.2f)", mode_string(m), temperature);
     set_mode(m);
   }
+
+  float ch1_flow_setpoint() const { return boiler.ch1.flow_setpoint(); }
+
+  float ch2_flow_setpoint() const { return boiler.ch2.flow_setpoint(); }
 
 protected:
   MyTransport transport;
@@ -1569,11 +1642,18 @@ public:
     }
   }
 
+  bool is_known(const zb_ieee_addr_t addr) {
+    for (size_t i = 0; i < num_addresses; i++)
+      if (ZB_64BIT_ADDR_CMP(addresses[i], addr))
+        return true;
+    return false;
+  }
+
 #ifdef USE_DEMAND_DRIVEN_THERMOSTAT
   void show_demanders(const struct shell *sh) {
     // TODO: should not be a member.
     auto now = Thermostat::time.get_us();
-    shell_fprintf(sh, SHELL_INFO, "[idx] ext_addr         short_addr age        level t     s/p\n");
+    shell_fprintf(sh, SHELL_NORMAL, "[idx] ext_addr         short_addr age        level t     s/p\n");
     for (size_t i = 0; i < num_addresses; i++) {
       auto &addr = addresses[i];
       auto &d = demands[i];
@@ -1583,7 +1663,7 @@ public:
       age_sec %= 3600;
       unsigned age_mins = age_sec / 60;
       age_sec %= 60;
-      shell_fprintf(sh, SHELL_INFO, "[%3u] %16s     0x%04x   %02u:%02u:%02u %5.2f %5.2f %5.2f\n", i,
+      shell_fprintf(sh, SHELL_NORMAL, "[%3u] %16s     0x%04x   %02u:%02u:%02u %5.2f %5.2f %5.2f\n", i,
                     addr_to_string(addr), zb_address_short_by_ieee(addr), age_hrs, age_mins, age_sec, d.level,
                     rtrv.local_temperature, rtrv.setpoint);
     }
@@ -1592,7 +1672,7 @@ public:
   void show_demanders(const struct shell *sh) {
     // TODO: should not be a member.
     auto now = Thermostat::time.get_us();
-    shell_fprintf(sh, SHELL_INFO, "[idx] ext_addr         short_addr age        weight t     s/p\n");
+    shell_fprintf(sh, SHELL_NORMAL, "[idx] ext_addr         short_addr age        weight t     s/p\n");
     for (size_t i = 0; i < num_addresses; i++) {
       auto &addr = addresses[i];
       unsigned age_sec = (now - room_temperature_time(i)) / 1e6f;
@@ -1600,7 +1680,7 @@ public:
       age_sec %= 3600;
       unsigned age_mins = age_sec / 60;
       age_sec %= 60;
-      shell_fprintf(sh, SHELL_INFO, "[%3u] %16s     0x%04x   %02u:%02u:%02u %5.2f %5.2f %5.2f\n", i,
+      shell_fprintf(sh, SHELL_NORMAL, "[%3u] %16s     0x%04x   %02u:%02u:%02u %5.2f %5.2f %5.2f\n", i,
                     addr_to_string(addr), zb_address_short_by_ieee(addr), age_hrs, age_mins, age_sec, pid_weight(i),
                     room_temperature(i), room_setpoint(i));
     }
@@ -1654,6 +1734,11 @@ MyApp &app() {
   }
   __ASSERT(r != nullptr, "failed to allocate app");
   return *r;
+}
+
+bool is_known(const zb_ieee_addr_t addr)
+{
+  return app().is_known(addr);
 }
 
 static zb_bool_t zb_zcl_set_real_time_clock(zb_uint32_t time) {
@@ -1879,7 +1964,8 @@ static zb_uint8_t zb_endpoint_handler(zb_bufid_t bufid) {
   zb_zcl_parsed_hdr_t *cmd_infop = ZB_BUF_GET_PARAM(bufid, zb_zcl_parsed_hdr_t);
   zb_zcl_parsed_hdr_t &cmd_info = *cmd_infop;
 
-  if (cmd_info.cluster_id != ZB_ZCL_CLUSTER_ID_THERMOSTAT && cmd_info.cluster_id != ZB_ZCL_CLUSTER_ID_TIME)
+  if (cmd_info.cluster_id != ZB_ZCL_CLUSTER_ID_THERMOSTAT && cmd_info.cluster_id != ZB_ZCL_CLUSTER_ID_TIME &&
+      !(cmd_info.is_common_command && cmd_info.cmd_id == 0x0B))
     LOG_DBG("zb_endpoint_handler: dir=%d common=%d cluster=%04x cmd=%02x "
             "buflen=%d",
             cmd_info.cmd_direction, cmd_info.is_common_command, cmd_info.cluster_id, cmd_info.cmd_id,
@@ -1936,7 +2022,7 @@ static zb_uint8_t zb_endpoint_handler(zb_bufid_t bufid) {
     case ZB_ZCL_CLUSTER_ID_THERMOSTAT: {
       switch (cmd_info.cmd_id) {
       case ZB_ZCL_CMD_READ_ATTRIB_RESP: {
-        zb_zcl_read_attr_res_t *attr_resp;
+        zb_zcl_read_attr_res_t *attr_resp = NULL;
         do {
           ZB_ZCL_GENERAL_GET_NEXT_READ_ATTR_RES(bufid, attr_resp);
           if (attr_resp && attr_resp->status == ZB_ZCL_STATUS_SUCCESS) {
@@ -1959,6 +2045,34 @@ static zb_uint8_t zb_endpoint_handler(zb_bufid_t bufid) {
             }
           }
         } while (attr_resp != NULL);
+        break;
+      }
+      case ZB_ZCL_CMD_WRITE_ATTRIB: {
+        zb_uint8_t *data_ptr = (zb_uint8_t *)zb_buf_begin(bufid);
+        zb_uint32_t buf_len = zb_buf_len(bufid);
+        zb_zcl_write_attr_req_t *req = NULL;
+        do {
+          ZB_ZCL_GENERAL_GET_NEXT_WRITE_ATTR_REQ(data_ptr, buf_len, req);
+          if (req) {
+            switch (req->attr_id) {
+            case ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID: {
+              if (req->attr_type == ZB_ZCL_ATTR_TYPE_U16)
+                app().configuration.thermostat.weather_compensation_ref_temp = zb_zcl_attr_get16(req->attr_value) / 100.0f;
+              break;
+            }
+            case ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID: {
+              if (req->attr_type == ZB_ZCL_ATTR_TYPE_U16)
+                app().configuration.thermostat.heat_loss_constant = zb_zcl_attr_get16(req->attr_value) / 100.0f;
+              break;
+            }
+            case ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID: {
+              if (req->attr_type == ZB_ZCL_ATTR_TYPE_U16)
+                app().configuration.thermostat.radiator_exponent = zb_zcl_attr_get16(req->attr_value) / 100.0f;
+              break;
+            }
+            }
+          }
+        } while (req != NULL);
         break;
       }
       }
@@ -2079,7 +2193,7 @@ static void setup_log_timestamps() {
 #ifdef USE_DEMAND_DRIVEN_THERMOSTAT
 static int sh_cmd_demand(const struct shell *sh, size_t argc, char **argv) {
   if (argc == 1) {
-    shell_fprintf(sh, SHELL_ERROR, "mixed demand = %0.2f\n", app().mixed_demand());
+    shell_fprintf(sh, SHELL_NORMAL, "mixed demand = %0.2f\n", app().mixed_demand());
     return 0;
   } else {
     if (argc != 4) {
@@ -2107,7 +2221,7 @@ static int sh_cmd_demand(const struct shell *sh, size_t argc, char **argv) {
 
     zb_ieee_addr_t ieee_addr;
     if (zb_address_ieee_by_short(nwk_addr, ieee_addr) != RET_OK) {
-      shell_fprintf(sh, SHELL_ERROR, "IEEE address no known\n");
+      shell_fprintf(sh, SHELL_ERROR, "IEEE address not known\n");
       return 1;
     } else {
       bool r = app().report_demand(ieee_addr, endpoint, demand);
@@ -2121,7 +2235,7 @@ static int sh_cmd_demand(const struct shell *sh, size_t argc, char **argv) {
 
 static int sh_cmd_status(const struct shell *sh, size_t argc, char **argv) {
   if (argc == 1) {
-    shell_fprintf(sh, SHELL_INFO, "%02x\n", app().transport_status());
+    shell_fprintf(sh, SHELL_NORMAL, "status = %02x\n", app().transport_status());
     return 0;
   } else {
     if (argc != 2) {
@@ -2142,7 +2256,7 @@ static int sh_cmd_status(const struct shell *sh, size_t argc, char **argv) {
 
 static int sh_cmd_mode(const struct shell *sh, size_t argc, char **argv) {
   if (argc == 1) {
-    shell_fprintf(sh, SHELL_INFO, "%s\n", app().get_mode_string());
+    shell_fprintf(sh, SHELL_NORMAL, "mode = %s\n", app().get_mode_string());
     return 0;
   } else {
     if (argc != 2) {
@@ -2169,29 +2283,29 @@ static int sh_cmd_mode(const struct shell *sh, size_t argc, char **argv) {
 
 static int sh_cmd_scheduler(const struct shell *sh, size_t argc, char **argv) {
   if (argc == 1) {
-    shell_fprintf(sh, SHELL_INFO, "scheduler %s\n", app().is_scheduling() ? "on" : "off");
+    shell_fprintf(sh, SHELL_NORMAL, "scheduler %s\n", app().is_scheduling() ? "on" : "off");
 
-    shell_fprintf(sh, SHELL_INFO, "  - transitions: %s\n",
+    shell_fprintf(sh, SHELL_NORMAL, "  - transitions: %s\n",
                   app().configuration.scheduler.num_transitions == 0 ? "None" : "");
 
     for (size_t i = 0; i < app().configuration.scheduler.num_transitions; i++) {
       const auto &t = app().configuration.scheduler.transitions[i];
-      shell_fprintf(sh, SHELL_INFO, "    %02x %02u:%02u %02x % 6.2f % 6.2f\n", t.days, t.time / 60, t.time % 60,
+      shell_fprintf(sh, SHELL_NORMAL, "    %02x %02u:%02u %02x % 6.2f % 6.2f\n", t.days, t.time / 60, t.time % 60,
                     static_cast<uint8_t>(t.mode), t.heat_setpoint, t.cool_setpoint);
     }
 
     if (!zb_utc_time_valid())
-      shell_fprintf(sh, SHELL_INFO, "  - no time information yet\n");
+      shell_fprintf(sh, SHELL_NORMAL, "  - no time information yet\n");
     else if (app().configuration.scheduler.num_transitions > 0) {
       const auto tc = app().current_schedule_transition();
-      shell_fprintf(sh, SHELL_INFO, "  - current: %02u:%02u % 6.2f % 6.2f\n", tc.time / 60, tc.time % 60,
+      shell_fprintf(sh, SHELL_NORMAL, "  - current: %02u:%02u % 6.2f % 6.2f\n", tc.time / 60, tc.time % 60,
                     tc.heat_setpoint, tc.cool_setpoint);
 
       uint16_t mn = app().minutes_until_next_scheduler_transition();
       if (mn == UINT16_MAX)
-        shell_fprintf(sh, SHELL_INFO, "  - no transitions scheduled\n");
+        shell_fprintf(sh, SHELL_NORMAL, "  - no transitions scheduled\n");
       else
-        shell_fprintf(sh, SHELL_INFO, "  - time until next transition: %02u:%02u\n", mn / 60, mn % 60);
+        shell_fprintf(sh, SHELL_NORMAL, "  - time until next transition: %02u:%02u\n", mn / 60, mn % 60);
     }
 
     return 0;
@@ -2217,7 +2331,10 @@ static int sh_cmd_scheduler(const struct shell *sh, size_t argc, char **argv) {
 }
 
 static int sh_cmd_setpoint(const struct shell *sh, size_t argc, char **argv) {
-  if (argc != 2) {
+  if (argc == 1) {
+    shell_fprintf(sh, SHELL_NORMAL, "CH1 flow setpoint = %0.2f\n", app().ch1_flow_setpoint());
+    return 0;
+  } else if (argc != 2) {
     shell_fprintf(sh, SHELL_ERROR, "Invalid number of arguments\n");
     return -EINVAL;
   } else {
@@ -2265,7 +2382,7 @@ static int sh_cmd_demanders(const struct shell *sh, size_t argc, char **argv) {
 static int sh_cmd_set_mix(const struct shell *sh, size_t argc, char **argv) {
   if (argc == 1) {
     auto fn = app().configuration.thermostat.mixing_function;
-    shell_fprintf(sh, SHELL_INFO, "mixing function: %s\n", app().mixing_function_name(fn));
+    shell_fprintf(sh, SHELL_NORMAL, "mixing function: %s\n", app().mixing_function_name(fn));
   } else if (argc == 2) {
     int mf = 0;
     if (sscanf(argv[1], "%02x", &mf) != 1 || mf >= static_cast<int>(MyThermostat::MixingFunction::INVALID)) {
