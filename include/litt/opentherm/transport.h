@@ -17,6 +17,7 @@
 #endif
 
 #include <litt/ds.h>
+#include <litt/serialization.h>
 
 // OpenTherm 2.2 transport layer
 
@@ -196,11 +197,6 @@ public:
     return false;
   }
 
-  struct Statistics {
-    uint32_t num_timeouts = 0;
-    uint32_t num_late = 0;
-  } statistics;
-
 protected:
   bool (*frame_callback)(Application &, const Frame &) = nullptr;
   Application *frame_callback_obj = nullptr;
@@ -210,6 +206,29 @@ template <typename TimerType, typename MutexType, typename SemaphoreType, typena
           template <typename> class QueueType, typename IOType, size_t max_concurrent_requests = 16>
 class Transport : public TransportBase {
 public:
+#pragma pack(push, 1)
+  struct Statistics {
+    uint64_t frames_dropped = 0, frames_late = 0;
+
+    bool serialize(uint8_t *&buf, size_t &sz) const {
+      using litt::serialize;
+      return serialize(frames_dropped, buf, sz) && serialize(frames_late, buf, sz);
+    }
+
+    bool deserialize(const uint8_t *&buf, size_t &sz) {
+      using litt::deserialize;
+      bool r = deserialize(frames_dropped, buf, sz) && deserialize(frames_late, buf, sz);
+      if (!r)
+        *this = Statistics();
+      return r;
+    }
+
+    size_t serialized_size() const {
+      return sizeof(frames_dropped) + sizeof(frames_late);
+    }
+  };
+#pragma pack(pop)
+
   Transport(const typename IOType::PinsType &pins_) : io(pins_), rx_frame_count(0) {}
 
   virtual ~Transport() {}
@@ -272,11 +291,12 @@ public:
   using DeviceT::frame_callback_obj;
   using DeviceT::rx_forever;
   using DeviceT::rx_frame_count;
-  using DeviceT::statistics;
   using DeviceT::tx;
   using DeviceT::tx_frame_count;
 
   bool disable_master_timer = false;
+
+  typename DeviceT::Statistics statistics;
 
   Master(const typename IOType::PinsType &pins_)
       : DeviceT(pins_), master_timer(
@@ -355,7 +375,7 @@ public:
     if (enabled)
       status |= 0x01;
     else
-      status &= 0xFE;
+      status &= ~0x01;
     if (before != status)
       tx_status();
   }
@@ -365,7 +385,7 @@ public:
     if (enabled)
       status |= 0x02;
     else
-      status &= 0xFD;
+      status &= ~0x02;
     if (before != status)
       tx_status();
   }
@@ -375,7 +395,17 @@ public:
     if (enabled)
       status |= 0x10;
     else
-      status &= 0xEF;
+      status &= ~0x10;
+    if (before != status)
+      tx_status();
+  }
+
+  void set_otc(bool enabled) {
+    uint8_t before = status;
+    if (enabled)
+      status |= 0x08;
+    else
+      status &= ~0x08;
     if (before != status)
       tx_status();
   }
@@ -455,7 +485,6 @@ public:
         // std::cout << time.get_us() << " M: converse: drop (!acquired, frame time: " << frame_time
         //           << ", rx_last: " << rx_last.to_string() << ") by " << std::this_thread::get_id() << std::endl;
         on_dropped_frame(req.id);
-        statistics.num_timeouts++;
       }
       // else
       //   std::cout << time.get_us() << " M: converse: ok (acquired, frame time: " << frame_time
@@ -466,7 +495,6 @@ public:
       // This path should not be reached if the slave behaves according to the specification. If it is reached, it's
       // likely due to imprecise time measurement or timer triggering.
       on_late_frame(req.id);
-      statistics.num_late++;
       if (!disable_master_timer) {
         master_timer.tick();
         master_timer.start(1e6);
@@ -564,9 +592,13 @@ public:
     }
   }
 
-  virtual void on_dropped_frame(RequestID rid) const {}
+  virtual void on_dropped_frame(RequestID rid) {
+    statistics.frames_dropped++;
+  }
 
-  virtual void on_late_frame(RequestID rid) const {}
+  virtual void on_late_frame(RequestID rid) {
+    statistics.frames_late++;
+  }
 
 protected:
   TimerType master_timer, plus_check_timer, tx_sem_release_timer;
@@ -597,6 +629,7 @@ public:
   using DeviceT::rx_last;
   using DeviceT::time;
   using DeviceT::tx;
+  using DeviceT::Statistics;
 
   Slave(const typename IOType::PinsType &pins_) : DeviceT(pins_) {}
 

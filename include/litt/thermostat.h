@@ -109,13 +109,40 @@ public:
   };
 #pragma pack(pop)
 
+#pragma pack(push, 1)
   struct Statistics {
     uint64_t tiny_cycles = 0, short_cycles = 0, normal_cycles = 0;
     uint32_t num_spike_protected = 0, num_tiny_cycle_protected = 0;
-  } statistics;
 
-  Thermostat(Configuration &configuration, CentralHeatingInterface &chif)
-      : configuration(configuration), chif(chif), tiny_cycle_protect_timer(tiny_cycle_protect_timer_cb, this) {
+    bool serialize(uint8_t *&buf, size_t &sz) const {
+      using litt::serialize;
+      return serialize(tiny_cycles, buf, sz) && serialize(short_cycles, buf, sz) &&
+             serialize(normal_cycles, buf, sz) && serialize(num_spike_protected, buf, sz) &&
+             serialize(num_tiny_cycle_protected, buf, sz);
+    }
+
+    bool deserialize(const uint8_t *&buf, size_t &sz) {
+      using litt::deserialize;
+      bool r = deserialize(tiny_cycles, buf, sz) && deserialize(short_cycles, buf, sz) &&
+             deserialize(normal_cycles, buf, sz) && deserialize(num_spike_protected, buf, sz) &&
+             deserialize(num_tiny_cycle_protected, buf, sz);
+      if (!r)
+        *this = Statistics();
+      return r;
+    }
+
+    size_t serialized_size() const {
+      return sizeof(tiny_cycles) + sizeof(short_cycles) + sizeof(normal_cycles) +
+             sizeof(num_spike_protected) + sizeof(num_tiny_cycle_protected);
+    }
+  };
+#pragma pack(pop)
+
+  Configuration configuration;
+  Statistics statistics;
+
+  Thermostat(CentralHeatingInterface &chif)
+      : chif(chif), tiny_cycle_protect_timer(tiny_cycle_protect_timer_cb, this) {
     manual_setpoint = configuration.min_flow_setpoint;
   }
 
@@ -383,7 +410,6 @@ public:
 
 protected:
   TimeType time;
-  Configuration &configuration;
   CentralHeatingInterface &chif;
 
   float manual_setpoint = 30.0f;
@@ -487,9 +513,9 @@ public:
   using typename Base::FlowSetpointUpdater;
   using typename Base::Mode;
 
-  PIDDrivenThermostat(typename Base::Configuration &configuration, CentralHeatingInterface &chif,
+  PIDDrivenThermostat(CentralHeatingInterface &chif,
                       float const (&weights)[NUM_PIDS], float default_setpoint = 21.0f)
-      : Base(configuration, chif), pid_timer(10e6, 10e6, on_pid_timer_cb, nullptr, this), rta(time, default_setpoint) {
+      : Base(chif), pid_timer(10e6, 10e6, on_pid_timer_cb, nullptr, this), rta(time, default_setpoint) {
     for (size_t i = 0; i < NUM_PIDS; i++) {
       pids[i] = PIDController<TimeType>(default_setpoint, {8.0f, 0.01875f, 0.01f}, 0.0f, 100.0f);
       this->weights[i] = weights[i];
@@ -768,8 +794,7 @@ public:
     float before;
   };
 
-  DemandDrivenThermostat(typename Base::Configuration &configuration, CentralHeatingInterface &chif)
-      : Base(configuration, chif) {}
+  DemandDrivenThermostat(CentralHeatingInterface &chif) : Base(chif) {}
 
   virtual ~DemandDrivenThermostat() = default;
 

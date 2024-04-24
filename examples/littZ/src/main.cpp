@@ -68,7 +68,7 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
 #define NUM_IN_OUT_CLUSTERS (IN_CLUSTER_NUM + OUT_CLUSTER_NUM)
 
 #define REPORT_ATTR_COUNT                                                                                              \
-  (ZB_ZCL_THERMOSTAT_REPORT_ATTR_COUNT + 11 + ZB_ZCL_OPENTHERM_REPORT_ATTR_COUNT + ZB_ZCL_TIME_REPORT_ATTR_COUNT)
+  (ZB_ZCL_THERMOSTAT_REPORT_ATTR_COUNT + 15 + ZB_ZCL_OPENTHERM_REPORT_ATTR_COUNT + ZB_ZCL_TIME_REPORT_ATTR_COUNT)
 
 #define DECLARE_CLUSTER_LIST(cluster_list_name, basic_attr_list, thermostat_attr_list, opentherm_attr_list,            \
                              time_attr_list, diagnostics_attr_list)                                                    \
@@ -238,11 +238,7 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
 #define BASIC_PH_ENV ZB_ZCL_BASIC_ENV_UNSPECIFIED
 #define BASIC_SW_BUILD_ID "0.0.3"
 
-void reboot() {
-  LOG_ERR("rebooting the device");
-  LOG_PANIC();
-  zb_reset(0);
-}
+static void reboot(bool save_statistics = false);
 
 extern "C" {
 void mpsl_assert_handle(const char *file, uint32_t line) {
@@ -509,7 +505,7 @@ void zboss_signal_handler(zb_bufid_t bufid) {
     if (nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE) {
       if (zb_stack_initialised && !zb_joining_signal_received) {
         LOG_ERR("Broken zigbee rejoin procedure detected, rebooting the device.");
-        reboot();
+        reboot(true);
       }
     }
     break;
@@ -943,16 +939,18 @@ void setup_watchdog() {
   wdt_tcfg = {.window = {.min = 0, .max = 60 * 1000},
               .callback =
                   [](const struct device *dev, int channel_id) {
-                    LOG_ERR("watchdog triggered; resetting SoC\n");
+                    LOG_ERR("OpenTherm watchdog triggered (channel %d); resetting SoC\n", channel_id);
                     LOG_PANIC();
                   },
               .flags = WDT_FLAG_RESET_SOC};
   wdt_channel = wdt_install_timeout(wdt, &wdt_tcfg);
   if (wdt_channel < 0)
     LOG_ERR("watchdog timer installation failed: error %d", wdt_channel);
-  int r = wdt_setup(wdt, WDT_OPT_PAUSE_HALTED_BY_DBG);
-  if (r != 0)
-    LOG_ERR("watchdog setup failed: error %d", r);
+  else {
+    int r = wdt_setup(wdt, WDT_OPT_PAUSE_HALTED_BY_DBG);
+    if (r != 0)
+      LOG_ERR("watchdog setup failed: error %d", r);
+  }
 }
 
 static void initialize_clusters(void) {
@@ -1142,7 +1140,7 @@ public:
 
     tx(f, true);
     advance();
-    wdt_feed(wdt, wdt_channel);
+    feed_watchdog();
   }
 
   virtual void on_normal() {
@@ -1165,9 +1163,15 @@ public:
 #endif
   }
 
-  virtual void on_dropped_frame(RequestID rid) const override { dev_ctx.opentherm.frames_dropped++; }
+  virtual void on_dropped_frame(RequestID rid) override {
+    Master::on_dropped_frame(rid);
+    update_zcl_statistics();
+  }
 
-  virtual void on_late_frame(RequestID rid) const override { dev_ctx.opentherm.frames_late++; }
+  virtual void on_late_frame(RequestID rid) override {
+    Master::on_late_frame(rid);
+    update_zcl_statistics();
+  }
 
   void cease() {
     master_timer.stop();
@@ -1175,11 +1179,34 @@ public:
     io.cease();
   }
 
+  void feed_watchdog() {
+    wdt_feed(wdt, wdt_channel);
+    uint64_t now = time.get_us();
+    if (0 < last_network_activity_time &&
+        last_network_activity_time <= now &&
+        now - last_network_activity_time > 15 * 60 * 1e6) {
+      LOG_ERR("network activity timeout; rebooting the device");
+      reboot(true);
+    }
+  }
+
+  void network_activity() {
+    last_network_activity_time = time.get_us();
+  }
+
+  void update_zcl_statistics() {
+    if (dev_ctx.opentherm.frames_dropped != statistics.frames_dropped)
+      dev_ctx.opentherm.frames_dropped = statistics.frames_dropped;
+    if (dev_ctx.opentherm.frames_late != statistics.frames_late)
+      dev_ctx.opentherm.frames_late = statistics.frames_late;
+  }
+
 protected:
   enum State { INIT, SLAVE_INFO, NORMAL };
   State state = INIT;
   size_t master_index = 0;
   const CentralHeatingInterface &chif;
+  uint64_t last_network_activity_time = 0;
 };
 
 #define USE_DEMAND_DRIVEN_THERMOSTAT
@@ -1196,8 +1223,14 @@ class MyApp : public RichApplication, public MyThermostat, public MyScheduler {
 
 #pragma pack(push, 1)
   struct Configuration {
-    MyThermostat::Configuration thermostat;
-    MyScheduler::Configuration scheduler;
+    MyThermostat::Configuration &thermostat;
+    MyScheduler::Configuration &scheduler;
+
+    Configuration(MyThermostat::Configuration &thermostat,
+      MyScheduler::Configuration &scheduler) :
+      thermostat(thermostat),
+      scheduler(scheduler)
+    {}
 
     bool serialize(uint8_t *buf, size_t sz) const {
       return thermostat.serialize(buf, sz) && scheduler.serialize(buf, sz);
@@ -1217,17 +1250,44 @@ class MyApp : public RichApplication, public MyThermostat, public MyScheduler {
   };
 #pragma pack(pop)
 
+#pragma pack(push, 1)
+  struct Statistics {
+    MyTransport::Statistics &transport;
+    MyThermostat::Statistics &thermostat;
+
+    Statistics(MyTransport::Statistics &transport, MyThermostat::Statistics &thermostat) :
+      transport(transport),
+      thermostat(thermostat)
+    {}
+
+    bool serialize(uint8_t *buf, size_t sz) const {
+      return thermostat.serialize(buf, sz) && transport.serialize(buf, sz);
+    }
+
+    bool deserialize(const uint8_t *buf, size_t sz) {
+      return thermostat.deserialize(buf, sz) && transport.deserialize(buf, sz);;
+    }
+
+    size_t serialized_size() const { return thermostat.serialized_size() + transport.serialized_size(); }
+  };
+#pragma pack(pop)
+
 public:
   Configuration configuration;
+  Statistics statistics;
 
   MyApp(const ZephyrPins &pins)
       : RichApplication(transport),
 #ifdef USE_DEMAND_DRIVEN_THERMOSTAT
-        MyThermostat(configuration.thermostat, boiler.ch1),
+        MyThermostat(boiler.ch1),
 #else
-        MyThermostat(configuration.thermostat, boiler.ch1, {2.75f, 0.0f}, 21.0f),
+        MyThermostat(boiler.ch1, {2.75f, 0.0f}, 21.0f),
 #endif
-        MyScheduler(configuration.scheduler), transport(pins, boiler.ch1), boiler(transport, *this),
+        MyScheduler(),
+        configuration(MyThermostat::configuration, MyScheduler::configuration),
+        statistics(transport.statistics, MyThermostat::statistics),
+        transport(pins, boiler.ch1),
+        boiler(transport, *this),
         statistics_timer(30e6, 60 * 60 * 1e6, statistics_ftick, nullptr, this) {
 
     transport.set_frame_callback(RichApplication::sprocess, this);
@@ -1261,11 +1321,23 @@ public:
     auto r = ZB_SCHEDULE_APP_CALLBACK(
         [](zb_uint8_t) {
           if (zb_nvram_write_dataset(ZB_NVRAM_APP_DATA1) != RET_OK)
-            LOG_DBG("failed to write configuration to nvram");
+            LOG_ERR("failed to write configuration to nvram");
         },
         0);
     return r == RET_OK;
   }
+
+  bool save_statistics() {
+    auto r = ZB_SCHEDULE_APP_CALLBACK(
+        [](zb_uint8_t) {
+          if (zb_nvram_write_dataset(ZB_NVRAM_APP_DATA2) != RET_OK)
+            LOG_ERR("failed to write statistics to nvram");
+        },
+        0);
+    return r == RET_OK;
+  }
+
+  void network_activity() { transport.network_activity(); }
 
   virtual uint8_t transport_status() const { return transport.get_status(); }
 
@@ -1295,14 +1367,27 @@ public:
     transport.tx(Frame(ReadData, oem_diagnostic_code.nr));
   }
 
+  void update_zcl_statistics() {
+    transport.update_zcl_statistics();
+
+    if (dev_ctx.thermostat.tiny_cycles != statistics.thermostat.tiny_cycles)
+      dev_ctx.thermostat.tiny_cycles = statistics.thermostat.tiny_cycles;
+    if (dev_ctx.thermostat.short_cycles != statistics.thermostat.short_cycles)
+      dev_ctx.thermostat.short_cycles = statistics.thermostat.short_cycles;
+    if (dev_ctx.thermostat.normal_cycles != statistics.thermostat.normal_cycles)
+      dev_ctx.thermostat.normal_cycles = statistics.thermostat.normal_cycles;
+    if (dev_ctx.thermostat.spike_protection_count != statistics.thermostat.num_spike_protected)
+      dev_ctx.thermostat.spike_protection_count = statistics.thermostat.num_spike_protected;
+    if (dev_ctx.thermostat.tiny_cycle_protection_count != statistics.thermostat.num_tiny_cycle_protected)
+      dev_ctx.thermostat.tiny_cycle_protection_count = statistics.thermostat.num_tiny_cycle_protected;
+  }
+
   virtual void on_flame_change(bool on) override {
     LOG_DBG("flame := %s", on ? "on" : "off");
     RichApplication::on_flame_change(on);
 
     MyThermostat::on_flame_change(on);
-    dev_ctx.thermostat.tiny_cycles = statistics.tiny_cycles;
-    dev_ctx.thermostat.short_cycles = statistics.short_cycles;
-    dev_ctx.thermostat.normal_cycles = statistics.normal_cycles;
+    update_zcl_statistics();
   }
 
   virtual void on_mode_change(Thermostat::Mode from, Thermostat::Mode to) override {
@@ -1318,12 +1403,14 @@ public:
 #ifdef USE_DEMAND_DRIVEN_THERMOSTAT
       dev_ctx.thermostat.PI_heating_demand = (zb_uint8_t)roundf(mixed_demand() * 100.0f);
 #else
-      // TODO
+      dev_ctx.thermostat.PI_heating_demand = flow_setpoint() / max_flow_setpoint * 100.0f;
 #endif
     }
 
-    if (from != to)
+    if (from != to) {
       save_configuration();
+      save_statistics();
+    }
   }
 
   virtual void on_spike_protect(bool on) override {
@@ -1332,7 +1419,7 @@ public:
 
     if (on) {
       dev_ctx.thermostat.extra_status |= 0x00000001;
-      dev_ctx.thermostat.spike_protection_count = statistics.num_spike_protected;
+      update_zcl_statistics();
     } else
       dev_ctx.thermostat.extra_status &= 0xFFFFFFFE;
   }
@@ -1343,7 +1430,7 @@ public:
 
     if (on) {
       dev_ctx.thermostat.extra_status |= 0x00000002;
-      dev_ctx.thermostat.tiny_cycle_protection_count = statistics.num_tiny_cycle_protected;
+      update_zcl_statistics();
     } else
       dev_ctx.thermostat.extra_status &= 0xFFFFFFFD;
   }
@@ -1396,6 +1483,7 @@ public:
     RichApplication::on_outside_air_temperature_change(from, to);
     MyThermostat::on_outside_air_temperature_change(from, to);
     dev_ctx.thermostat.outdoor_temperature = (zb_uint16_t)roundf(to * 100.0f);
+    boiler.otc_enable();
 
     if (from != to)
       LOG_INF("weather compensated setpoint := %0.2f", weather_compensated_flow_setpoint());
@@ -1607,11 +1695,12 @@ protected:
 
   static bool statistics_ftick(Timer *, void *obj) {
     auto app = static_cast<MyApp *>(obj);
-    app->get_statistics();
+    app->get_ot_statistics();
+    app->save_statistics();
     return true;
   }
 
-  void get_statistics() {
+  void get_ot_statistics() {
     for (size_t i = 116; i <= 123; i++)
       transport.tx(Frame(ReadData, i), false, [](Application *, RequestStatus, RequestID, const Frame &response) {});
   }
@@ -1734,6 +1823,14 @@ MyApp &app() {
   }
   __ASSERT(r != nullptr, "failed to allocate app");
   return *r;
+}
+
+static void reboot(bool save_statistics) {
+  if (save_statistics)
+    app().save_statistics();
+  LOG_ERR("rebooting the device");
+  LOG_PANIC();
+  zb_reset(0);
 }
 
 bool is_known(const zb_ieee_addr_t addr)
@@ -1971,6 +2068,8 @@ static zb_uint8_t zb_endpoint_handler(zb_bufid_t bufid) {
             cmd_info.cmd_direction, cmd_info.is_common_command, cmd_info.cluster_id, cmd_info.cmd_id,
             zb_buf_len(bufid));
 
+  app().network_activity();
+
   zb_uint8_t r = ZB_FALSE;
 
   if (!cmd_info.is_common_command) {
@@ -2104,13 +2203,13 @@ void report_attribute_cb(zb_zcl_addr_t *addr, zb_uint8_t ep, zb_uint16_t cluster
 }
 
 void zb_nvram_read_config(zb_uint8_t page, zb_uint32_t pos, zb_uint16_t payload_length) {
-  // LOG_DBG("zb_nvram_read_config: page=%08x pos=%08u payload_length=%u", page, pos, payload_length);
+  // LOG_DBG("page=%08x pos=%08u payload_length=%u", page, pos, payload_length);
   uint8_t buf[payload_length];
   const uint8_t *pbuf = &buf[0];
   size_t size = payload_length;
   zb_ret_t r = zb_nvram_read_data(page, pos, buf, payload_length);
   if (r != RET_OK)
-    LOG_ERR("zb_osif_nvram_read: %d", r);
+    LOG_ERR("zb_nvram_read_data: %d", r);
   else if (!app().configuration.deserialize(pbuf, size))
     LOG_ERR("configuration deserialization failed");
 }
@@ -2126,29 +2225,73 @@ zb_uint16_t zb_nvram_get_config_size(void) {
 }
 
 zb_ret_t zb_nvram_write_config(zb_uint8_t page, zb_uint32_t pos) {
-  // LOG_DBG("zb_nvram_write_config: page=%08x pos=%08u", page, pos);
-  size_t sz = zb_nvram_get_config_size();
+  // LOG_DBG("page=%08x pos=%08u", page, pos);
+  const size_t sz = zb_nvram_get_config_size();
   if (sz == 0)
     return RET_NO_MEMORY;
-  uint8_t buf[sz];
+  uint8_t buf[sz] = {0};
   uint8_t *pbuf = &buf[0];
-  if (!app().configuration.serialize(pbuf, sz))
+  size_t space_remaining = sz;
+  if (!app().configuration.serialize(pbuf, space_remaining)) {
+    LOG_ERR("configuration serialization failed");
     return RET_OPERATION_FAILED;
+  }
+  return zb_nvram_write_data(page, pos, buf, sz);
+}
+
+void zb_nvram_read_statistics(zb_uint8_t page, zb_uint32_t pos, zb_uint16_t payload_length) {
+  LOG_DBG("page=%08x pos=%08u payload_length=%u", page, pos, payload_length);
+  uint8_t buf[payload_length];
+  const uint8_t *pbuf = &buf[0];
+  size_t size = payload_length;
+  zb_ret_t r = zb_nvram_read_data(page, pos, buf, payload_length);
+  if (r != RET_OK)
+    LOG_ERR("zb_nvram_read_data: %d", r);
+  else if (!app().statistics.deserialize(pbuf, size))
+    LOG_ERR("statistics deserialization failed");
+  else
+    app().update_zcl_statistics();
+}
+
+zb_uint16_t zb_nvram_get_statistics_size(void) {
+  // Note: result must be a multiple of the word alignment, otherwise zboss/osif hard-faults.
+  size_t sz = app().statistics.serialized_size();
+  size_t max = zb_get_nvram_page_length();
+  size_t r = sz > max ? 0 : sz;
+  r += sizeof(int) - r % sizeof(int);
+  LOG_DBG("zb_nvram_get_statistics_size: r=%u", r);
+  return r;
+}
+
+zb_ret_t zb_nvram_write_statistics(zb_uint8_t page, zb_uint32_t pos) {
+  LOG_DBG("page=%08x pos=%08u", page, pos);
+  const size_t sz = zb_nvram_get_statistics_size();
+  if (sz == 0)
+    return RET_NO_MEMORY;
+  uint8_t buf[sz] = {0};
+  uint8_t *pbuf = &buf[0];
+  size_t space_remaining = sz;
+  if (!app().statistics.serialize(pbuf, space_remaining)) {
+    LOG_ERR("statistics serialization failed");
+    return RET_OPERATION_FAILED;
+  }
+  else
+    app().update_zcl_statistics();
   return zb_nvram_write_data(page, pos, buf, sz);
 }
 
 static void setup_leds() {
   for (size_t i = 0; i < 3; i++) {
     if (!device_is_ready(leds[i].port))
-      LOG_ERR("LED not ready.");
+      LOG_ERR("LED %d not ready.", i);
 
     int err = gpio_pin_configure_dt(&leds[i], GPIO_OUTPUT_ACTIVE);
     if (err < 0)
-      LOG_ERR("GPIO config failed.");
+      LOG_ERR("GPIO config for LED %d failed.", i);
 
     err = gpio_pin_set_dt(&leds[i], 0);
     if (err < 0)
-      LOG_ERR("gpio_pin_set_dt failed.");
+      LOG_ERR("gpio_pin_set_dt for LED %d failed.", i);
   }
 }
 
@@ -2169,6 +2312,8 @@ static void start_zigbee() {
   ZB_AF_SET_ENDPOINT_HANDLER(ENDPOINT_ID, zb_endpoint_handler);
   zb_nvram_register_app1_read_cb(zb_nvram_read_config);
   zb_nvram_register_app1_write_cb(zb_nvram_write_config, zb_nvram_get_config_size);
+  zb_nvram_register_app2_read_cb(zb_nvram_read_statistics);
+  zb_nvram_register_app2_write_cb(zb_nvram_write_statistics, zb_nvram_get_statistics_size);
   ZB_ZCL_TIME_SET_REAL_TIME_CLOCK_CB(rtc_cb);
 
   initialize_clusters();

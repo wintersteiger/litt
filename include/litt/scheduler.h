@@ -94,7 +94,9 @@ public:
   };
 #pragma pack(pop)
 
-  Scheduler(Configuration &configuration) : configuration(configuration), timer(timer_cb, this) {}
+  Configuration configuration;
+
+  Scheduler() : timer(timer_cb, this) {}
 
   virtual ~Scheduler() = default;
 
@@ -266,7 +268,6 @@ public:
   }
 
 protected:
-  Configuration &configuration;
   RealTimeType real_time;
   TimerType timer;
 

@@ -170,7 +170,9 @@ public:
 #endif
   }
 
-  virtual void on_dropped_frame(RequestID rid) const override { llog("Frame %" PRIu64 " dropped", rid); }
+  virtual void on_dropped_frame(RequestID rid) override { llog("Frame %" PRIu64 " dropped", rid); }
+
+  virtual void on_late_frame(RequestID rid) override { llog("Frame %" PRIu64 " late", rid); }
 
   void set_flow_setpoint(float temperature) { flow_setpoint = temperature; }
 
@@ -184,7 +186,9 @@ using MyThermostat = PIDDrivenThermostat<MAX_TEMPERATURES, PicoTime, PicoTimer>;
 class MyApp : public RichApplication, public MyThermostat, public TMQTTClient {
 #pragma pack(push, 1)
   struct Configuration {
-    Configuration() {
+    Configuration(Thermostat::Configuration &thermostat) :
+      thermostat(thermostat)
+    {
       strcpy(all_temperature_topics, TEMPERATURE_TOPICS);
       char *p = strtok(all_temperature_topics, ",");
       while (p != NULL) {
@@ -221,7 +225,7 @@ class MyApp : public RichApplication, public MyThermostat, public TMQTTClient {
 
     size_t num_temperatures = 0;
 
-    Thermostat::Configuration thermostat;
+    Thermostat::Configuration &thermostat;
 
     bool serialize(uint8_t *buf, size_t sz) {
 #define PSZ p, sz - (p - (char *)buf)
@@ -237,7 +241,7 @@ class MyApp : public RichApplication, public MyThermostat, public TMQTTClient {
       p += snprintf(PSZ, "%s", mqtt.command_in_topic);
       p += snprintf(PSZ, "%s", mqtt.command_out_topic);
 #undef PSZ
-      // TODO: refactor and add thermostat config.
+      // TODO: refactor and add thermostat configuration.
       return ((size_t)(p - (char *)buf)) <= sz;
     }
 
@@ -249,10 +253,15 @@ class MyApp : public RichApplication, public MyThermostat, public TMQTTClient {
 #pragma pack(pop)
 
 public:
+  Configuration configuration;
+
   MyApp(const PicoPins &pins)
       : RichApplication(transport),
-        MyThermostat(config.thermostat, boiler.ch1, {2.75f, 0.0f, 0.5f, 0.25f, 0.5f}, 21.0f), TMQTTClient(),
-        transport(pins), boiler(transport, *this), flash_size(get_flash_size()),
+        MyThermostat(boiler.ch1, {2.75f, 0.0f, 0.5f, 0.25f, 0.5f}, 21.0f), TMQTTClient(),
+        configuration(MyThermostat::configuration),
+        transport(pins),
+        boiler(transport, *this),
+        flash_size(get_flash_size()),
         wifi_link_timer(0, 1000000, on_wifi_link_timer_cb, nullptr, this) {
     mutex_init(&flash_mtx);
     transport.set_frame_callback(RichApplication::sprocess, this);
@@ -319,7 +328,7 @@ public:
     if (!RichApplication::process(f))
       return false;
 
-    mqtt_publish_queue_add(config.mqtt.frame_topic, f);
+    mqtt_publish_queue_add(configuration.mqtt.frame_topic, f);
     MQTTClient::publish_all_queued(); // Note: should this be done elsewhere?
     return true;
   }
@@ -338,12 +347,9 @@ public:
 
   const PIDController<PicoTime> &pid(uint8_t pid_id) const { return MyThermostat::pids[pid_id]; }
 
-  const Configuration &configuration() const { return config; }
-
   // void on_real_time_available(bool available) { real_time.set_available(available); }
 
 protected:
-  Configuration config;
   MyTransport transport;
   OpenTherm::BoilerInterface<MyTransport> boiler;
 
@@ -499,7 +505,8 @@ protected:
   virtual bool on_load_config_cmd(uint16_t user_data) {
     mutex_enter_blocking(&flash_mtx);
     const uint8_t *ptr = (uint8_t *)(XIP_BASE + flash_size - FLASH_SECTOR_SIZE);
-    config = *reinterpret_cast<const Configuration *>(ptr);
+    size_t space_remaining = sizeof(Configuration);
+    configuration.deserialize(ptr, space_remaining);
     mutex_exit(&flash_mtx);
     return true;
   }
@@ -511,7 +518,7 @@ protected:
     size_t size = FLASH_PAGE_SIZE * pages;
     uint8_t buffer[size] = {0};
     // memcpy(buffer, &config, size);
-    config.serialize(buffer, size);
+    configuration.serialize(buffer, size);
     uint32_t ints = save_and_disable_interrupts();
     flash_range_program(flash_size - FLASH_SECTOR_SIZE, buffer, size);
     restore_interrupts(ints);
@@ -538,7 +545,7 @@ protected: // MQTT
     CommandFrame cf(cid, user_id, payload);
 
     MQTTPublishRequest req;
-    req.topic = config.mqtt.command_out_topic;
+    req.topic = configuration.mqtt.command_out_topic;
     if (!cf.to_string(req.payload, sizeof(req.payload))) {
       llog("cf.to_string failed");
       snprintf(req.payload, sizeof(req.payload), "00%04x00000000", user_id);
@@ -551,7 +558,7 @@ protected: // MQTT
     CommandFrame cf(CommandID::CONFIRMATION, user_id, static_cast<uint32_t>(s));
 
     MQTTPublishRequest req;
-    req.topic = config.mqtt.command_out_topic;
+    req.topic = configuration.mqtt.command_out_topic;
     if (!cf.to_string(req.payload, sizeof(req.payload))) {
       llog("cf.to_string failed");
       snprintf(req.payload, sizeof(req.payload), "00%04x00000000", user_id);
@@ -561,13 +568,13 @@ protected: // MQTT
   }
 
   virtual void on_message(const char *topic, const uint8_t *payload, size_t payload_len) override {
-    if (strncmp(topic, config.mqtt.command_in_topic, sizeof(config.mqtt.command_in_topic)) == 0) {
+    if (strncmp(topic, configuration.mqtt.command_in_topic, sizeof(configuration.mqtt.command_in_topic)) == 0) {
       CommandFrame cf((const char *)payload, payload_len);
       if (!execute(cf))
         llog("command frame processing failed for message of size %u (cmd %u)", payload_len, cf.command_id);
     } else {
-      for (size_t pid_id = 0; pid_id < config.num_temperatures; pid_id++) {
-        if (strcmp(topic, config.mqtt.temperature_topics[pid_id]) == 0) {
+      for (size_t pid_id = 0; pid_id < configuration.num_temperatures; pid_id++) {
+        if (strcmp(topic, configuration.mqtt.temperature_topics[pid_id]) == 0) {
           if (payload_len != sizeof(uint32_t))
             llog("unexpected MQTT data size: %u", payload_len);
           else {
@@ -625,11 +632,11 @@ protected: // Wifi
 
   bool on_network_up() {
     MQTTClient::Configuration cfg{
-        config.mqtt.host,           config.mqtt.client_id, config.mqtt.client_user, config.mqtt.client_pass, {},
-        config.num_temperatures + 1};
-    cfg.topics[0] = config.mqtt.command_in_topic;
-    for (size_t i = 0; i < config.num_temperatures; i++)
-      cfg.topics[i + 1] = config.mqtt.temperature_topics[i];
+        configuration.mqtt.host,           configuration.mqtt.client_id, configuration.mqtt.client_user, configuration.mqtt.client_pass, {},
+        configuration.num_temperatures + 1};
+    cfg.topics[0] = configuration.mqtt.command_in_topic;
+    for (size_t i = 0; i < configuration.num_temperatures; i++)
+      cfg.topics[i + 1] = configuration.mqtt.temperature_topics[i];
     MQTTClient::initialize(cfg);
 
     ip_addr_t ip;
@@ -653,7 +660,7 @@ protected: // Wifi
     }
 
     if (previous_ts != ts && ts <= 0) {
-      ts = cyw43_arch_wifi_connect_async(config.wifi.ssid, config.wifi.password, config.wifi.auth);
+      ts = cyw43_arch_wifi_connect_async(configuration.wifi.ssid, configuration.wifi.password, configuration.wifi.auth);
       wifi_link_down = true;
       on_network_down();
     }
@@ -673,7 +680,7 @@ protected: // Wifi
       return false;
     }
 
-    llog("Connecting to '%s'", config.wifi.ssid);
+    llog("Connecting to '%s'", configuration.wifi.ssid);
     cyw43_wifi_pm(&cyw43_state, CYW43_AGGRESSIVE_PM);
     cyw43_arch_enable_sta_mode();
     wifi_link_timer.start();
@@ -837,7 +844,7 @@ size_t make_status_page(char *buf, size_t sz) {
   p += snprintf(PSZ, "</table>");
 
   p += snprintf(PSZ, "<h2>PID Controllers</h2>");
-  auto n = app.configuration().num_temperatures;
+  auto n = app.configuration.num_temperatures;
   p += snprintf(PSZ, "<table>");
 
   p += snprintf(PSZ, "<tr><th>Topic</th><th>Name</th><th>Age</th><th>Room</"
@@ -848,8 +855,8 @@ size_t make_status_page(char *buf, size_t sz) {
   uint64_t now = time_us_64();
   for (size_t i = 0; i < n; i++) {
     p += snprintf(PSZ, "<tr>");
-    p += snprintf(PSZ, "<td class=\"txt\">%s</td>", app.configuration().mqtt.temperature_topics[i]);
-    p += snprintf(PSZ, "<td class=\"txt\">%s</td>", app.configuration().mqtt.temperature_names[i]);
+    p += snprintf(PSZ, "<td class=\"txt\">%s</td>", app.configuration.mqtt.temperature_topics[i]);
+    p += snprintf(PSZ, "<td class=\"txt\">%s</td>", app.configuration.mqtt.temperature_names[i]);
     p += snprintf(PSZ, "<td>%.2f</td>", (now - app.room_temperature_time(i)) / 1e6);
     p += snprintf(PSZ, "<td>%.2f</td>", app.room_temperature(i));
     p += snprintf(PSZ, "<td>%.2f</td>", app.pid(i).setpoint);

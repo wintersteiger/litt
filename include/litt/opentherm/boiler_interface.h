@@ -15,7 +15,7 @@ namespace OpenTherm {
 template <typename TransportType> class BoilerInterface {
 public:
   BoilerInterface(TransportType &transport, Application &app)
-      : ch1(true, transport, app), ch2(false, transport, app), dhw(transport) {}
+      : ch1(true, transport, app), ch2(false, transport, app), dhw(transport), transport(transport) {}
 
   virtual ~BoilerInterface() = default;
 
@@ -86,9 +86,25 @@ public:
     TransportType &transport;
   };
 
+  virtual void otc_enable() const {
+    if (!transport.otc_active())
+      transport.set_otc(true);
+  }
+
+  virtual void otc_disable() const {
+    transport.set_otc(false);
+  }
+
+  virtual bool otc_enabled() const {
+    return transport.otc_active();
+  }
+
   CHIF ch1;
   CHIF ch2;
   DHWIF dhw;
+
+protected:
+  TransportType &transport;
 };
 
 } // namespace OpenTherm
