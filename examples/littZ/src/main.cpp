@@ -978,8 +978,7 @@ static void initialize_clusters(void) {
 }
 
 // The crudest RTC; a timer running at a 1sec period.
-K_TIMER_DEFINE(
-    rtc_timer, [](struct k_timer *) { dev_ctx.time.time++; }, NULL);
+K_TIMER_DEFINE(rtc_timer, [](struct k_timer *) { dev_ctx.time.time++; }, NULL);
 
 static zb_bool_t zb_zcl_set_real_time_clock(zb_uint32_t time);
 
@@ -1182,17 +1181,14 @@ public:
   void feed_watchdog() {
     wdt_feed(wdt, wdt_channel);
     uint64_t now = time.get_us();
-    if (0 < last_network_activity_time &&
-        last_network_activity_time <= now &&
+    if (0 < last_network_activity_time && last_network_activity_time <= now &&
         now - last_network_activity_time > 15 * 60 * 1e6) {
       LOG_ERR("network activity timeout; rebooting the device");
       reboot(true);
     }
   }
 
-  void network_activity() {
-    last_network_activity_time = time.get_us();
-  }
+  void network_activity() { last_network_activity_time = time.get_us(); }
 
   void update_zcl_statistics() {
     if (dev_ctx.opentherm.frames_dropped != statistics.frames_dropped)
@@ -1226,11 +1222,8 @@ class MyApp : public RichApplication, public MyThermostat, public MyScheduler {
     MyThermostat::Configuration &thermostat;
     MyScheduler::Configuration &scheduler;
 
-    Configuration(MyThermostat::Configuration &thermostat,
-      MyScheduler::Configuration &scheduler) :
-      thermostat(thermostat),
-      scheduler(scheduler)
-    {}
+    Configuration(MyThermostat::Configuration &thermostat, MyScheduler::Configuration &scheduler)
+        : thermostat(thermostat), scheduler(scheduler) {}
 
     bool serialize(uint8_t *buf, size_t sz) const {
       return thermostat.serialize(buf, sz) && scheduler.serialize(buf, sz);
@@ -1255,17 +1248,15 @@ class MyApp : public RichApplication, public MyThermostat, public MyScheduler {
     MyTransport::Statistics &transport;
     MyThermostat::Statistics &thermostat;
 
-    Statistics(MyTransport::Statistics &transport, MyThermostat::Statistics &thermostat) :
-      transport(transport),
-      thermostat(thermostat)
-    {}
+    Statistics(MyTransport::Statistics &transport, MyThermostat::Statistics &thermostat)
+        : transport(transport), thermostat(thermostat) {}
 
     bool serialize(uint8_t *buf, size_t sz) const {
       return thermostat.serialize(buf, sz) && transport.serialize(buf, sz);
     }
 
     bool deserialize(const uint8_t *buf, size_t sz) {
-      return thermostat.deserialize(buf, sz) && transport.deserialize(buf, sz);;
+      return thermostat.deserialize(buf, sz) && transport.deserialize(buf, sz);
     }
 
     size_t serialized_size() const { return thermostat.serialized_size() + transport.serialized_size(); }
@@ -1283,12 +1274,9 @@ public:
 #else
         MyThermostat(boiler.ch1, {2.75f, 0.0f}, 21.0f),
 #endif
-        MyScheduler(),
-        configuration(MyThermostat::configuration, MyScheduler::configuration),
-        statistics(transport.statistics, MyThermostat::statistics),
-        transport(pins, boiler.ch1),
-        boiler(transport, *this),
-        statistics_timer(30e6, 60 * 60 * 1e6, statistics_ftick, nullptr, this) {
+        MyScheduler(), configuration(MyThermostat::configuration, MyScheduler::configuration),
+        statistics(transport.statistics, MyThermostat::statistics), transport(pins, boiler.ch1),
+        boiler(transport, *this), statistics_timer(30e6, 60 * 60 * 1e6, statistics_ftick, nullptr, this) {
 
     transport.set_frame_callback(RichApplication::sprocess, this);
 
@@ -1833,10 +1821,7 @@ static void reboot(bool save_statistics) {
   zb_reset(0);
 }
 
-bool is_known(const zb_ieee_addr_t addr)
-{
-  return app().is_known(addr);
-}
+bool is_known(const zb_ieee_addr_t addr) { return app().is_known(addr); }
 
 static zb_bool_t zb_zcl_set_real_time_clock(zb_uint32_t time) {
   bool first_time = !zb_utc_time_valid();
@@ -2156,7 +2141,8 @@ static zb_uint8_t zb_endpoint_handler(zb_bufid_t bufid) {
             switch (req->attr_id) {
             case ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID: {
               if (req->attr_type == ZB_ZCL_ATTR_TYPE_U16)
-                app().configuration.thermostat.weather_compensation_ref_temp = zb_zcl_attr_get16(req->attr_value) / 100.0f;
+                app().configuration.thermostat.weather_compensation_ref_temp =
+                    zb_zcl_attr_get16(req->attr_value) / 100.0f;
               break;
             }
             case ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID: {
@@ -2274,8 +2260,7 @@ zb_ret_t zb_nvram_write_statistics(zb_uint8_t page, zb_uint32_t pos) {
   if (!app().statistics.serialize(pbuf, space_remaining)) {
     LOG_ERR("statistics serialization failed");
     return RET_OPERATION_FAILED;
-  }
-  else
+  } else
     app().update_zcl_statistics();
   return zb_nvram_write_data(page, pos, buf, sz);
 }

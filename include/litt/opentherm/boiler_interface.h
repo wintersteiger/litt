@@ -91,13 +91,9 @@ public:
       transport.set_otc(true);
   }
 
-  virtual void otc_disable() const {
-    transport.set_otc(false);
-  }
+  virtual void otc_disable() const { transport.set_otc(false); }
 
-  virtual bool otc_enabled() const {
-    return transport.otc_active();
-  }
+  virtual bool otc_enabled() const { return transport.otc_active(); }
 
   CHIF ch1;
   CHIF ch2;

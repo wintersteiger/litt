@@ -223,9 +223,7 @@ public:
       return r;
     }
 
-    size_t serialized_size() const {
-      return sizeof(frames_dropped) + sizeof(frames_late);
-    }
+    size_t serialized_size() const { return sizeof(frames_dropped) + sizeof(frames_late); }
   };
 #pragma pack(pop)
 
@@ -300,12 +298,12 @@ public:
 
   Master(const typename IOType::PinsType &pins_)
       : DeviceT(pins_), master_timer(
-                           0, 1000000,
-                           [](Timer *, void *data) {
-                             ((Master *)data)->next_master_msg();
-                             return true;
-                           },
-                           nullptr, this),
+                            0, 1000000,
+                            [](Timer *, void *data) {
+                              ((Master *)data)->next_master_msg();
+                              return true;
+                            },
+                            nullptr, this),
         plus_check_timer(
             0, 20000000,
             [](Timer *timer, void *data) {
@@ -592,13 +590,9 @@ public:
     }
   }
 
-  virtual void on_dropped_frame(RequestID rid) {
-    statistics.frames_dropped++;
-  }
+  virtual void on_dropped_frame(RequestID rid) { statistics.frames_dropped++; }
 
-  virtual void on_late_frame(RequestID rid) {
-    statistics.frames_late++;
-  }
+  virtual void on_late_frame(RequestID rid) { statistics.frames_late++; }
 
 protected:
   TimerType master_timer, plus_check_timer, tx_sem_release_timer;
@@ -627,9 +621,9 @@ public:
   using DeviceT::keep_running;
   using DeviceT::rx_frame_count;
   using DeviceT::rx_last;
+  using DeviceT::Statistics;
   using DeviceT::time;
   using DeviceT::tx;
-  using DeviceT::Statistics;
 
   Slave(const typename IOType::PinsType &pins_) : DeviceT(pins_) {}
 
@@ -655,7 +649,8 @@ public:
     rx_frame_count++;
 #endif
 
-    // if (r.ok) std::cout << time.get_us() << " S: rx_once: frame received by " << std::this_thread::get_id() << std::endl;
+    // if (r.ok) std::cout << time.get_us() << " S: rx_once: frame received by " << std::this_thread::get_id() <<
+    // std::endl;
 
     return r;
   }
