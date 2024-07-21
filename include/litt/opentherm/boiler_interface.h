@@ -46,13 +46,17 @@ public:
     }
 
     virtual bool set_flow_setpoint(float temperature) override {
-      if (isnan(temperature) || isinf(temperature))
+      if (isnan(temperature) || temperature < 0.0f || temperature > 100.0f)
         return false;
 
-      if (temperature > 80.0f) {
-        // Just in case, we consider a flow setpoint > 80.0C too high.
-        temperature = 80.0f;
-      }
+      auto id = app.find(49);
+      if (!id)
+        return false;
+
+      float ub = max_flow_setpoint();
+
+      if (temperature > ub)
+        temperature = ub;
 
       return transport.tx(Frame(WriteData, 1, temperature)) != NoRequestID;
     }
@@ -65,6 +69,19 @@ public:
     virtual float flow_temperature() const override {
       auto id = app.find(first ? 25 : 31);
       return id ? to_f88(id->value) : 0.0f;
+    }
+
+    virtual float max_flow_setpoint() const override {
+      auto id = app.find(57);
+      if (!id)
+        return false;
+
+      float t = to_f88(id->value);
+
+      if (t < 0.0f || t > 127.0f)
+        return nanf("");
+
+      return t;
     }
 
   protected:

@@ -19,6 +19,8 @@ public:
   virtual float flow_setpoint() const = 0;
   virtual float flow_temperature() const = 0;
   virtual bool set_flow_setpoint(float temperature) = 0;
+
+  virtual float max_flow_setpoint() const = 0;
 };
 
 } // namespace litt

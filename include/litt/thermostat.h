@@ -140,9 +140,7 @@ public:
   Configuration configuration;
   Statistics statistics;
 
-  Thermostat(CentralHeatingInterface &chif) : chif(chif), tiny_cycle_protect_timer(tiny_cycle_protect_timer_cb, this) {
-    manual_setpoint = configuration.min_flow_setpoint;
-  }
+  Thermostat(CentralHeatingInterface &chif) : chif(chif), tiny_cycle_protect_timer(tiny_cycle_protect_timer_cb, this) {}
 
   virtual ~Thermostat() {}
 
@@ -189,10 +187,12 @@ public:
 
     switch (to) {
     case Mode::OFF:
-      chif.disable();
+      if (chif.enabled())
+        chif.disable();
       disengage_protection();
       break;
     case Mode::MANUAL:
+      chif.enable();
       disengage_protection();
       break;
     default:
@@ -205,14 +205,7 @@ public:
     on_flow_setpoint_change(fsp, fsp, false);
   }
 
-  virtual void set_max_flow_setpoint_bounds(float min, float max) {
-    FlowSetpointUpdater u(*this, false);
-    max_flow_setpoint = max;
-
-    auto sp = chif.flow_setpoint();
-    if (sp > max_flow_setpoint)
-      chif.set_flow_setpoint(max_flow_setpoint);
-  }
+  virtual void set_max_flow_setpoint_bounds(float min, float max) {}
 
   /// @brief Called when the boiler ignites or extinguishes the flame.
   /// @param on true if the flame is now on, false otherwise
@@ -245,9 +238,7 @@ public:
   }
 
   virtual float flow_setpoint() {
-    if (is_off())
-      return configuration.min_flow_setpoint;
-    else if (is_manual())
+    if (is_manual())
       return manual_setpoint;
     else
       return chif.flow_setpoint();
@@ -260,9 +251,11 @@ public:
   /// @note The new flow setpoint is not necessarily different from the previous one.
   virtual void on_flow_setpoint_change(float from, float to, bool approximated) {
     switch (configuration.mode) {
-    case Mode::OFF:
-      chif.set_flow_setpoint(configuration.min_flow_setpoint);
+    case Mode::OFF: {
+      if (chif.enabled())
+        chif.disable();
       break;
+    }
     case Mode::MANUAL:
       chif.set_flow_setpoint(manual_setpoint);
       break;
@@ -285,7 +278,7 @@ public:
   // TODO: This should be part of the boiler interface? Maybe both?
   virtual void on_flow_temperature_change(float from, float to) {
     if (!is_off() && !is_manual()) {
-      float setpoint = chif.flow_setpoint();
+      float setpoint = flow_setpoint();
       check_spike_protect(from, to, setpoint, setpoint);
     }
   }
@@ -369,7 +362,10 @@ public:
   /// @brief Called when the outside air temperature changes.
   /// @param from the previous outside air temperature.
   /// @param to the new outside air temperature.
-  virtual void on_outside_air_temperature_change(float from, float to) { outside_air_temperature = to; }
+  virtual void on_outside_air_temperature_change(float from, float to) {
+    FlowSetpointUpdater u(*this, false);
+    outside_air_temperature = to;
+  }
 
   /// @brief Computes the weather-compensated flow setpoint.
   /// @return The weather-compensated flow setpoint.
@@ -377,8 +373,9 @@ public:
     const float c = configuration.heat_loss_constant;
     const float rt = configuration.weather_compensation_ref_temp;
     const float dt = rt - outside_air_temperature;
-    const float r = pow(c, 1.0f / 1.3f) * pow(dt, 1.0f / 1.3f) + 5 + rt; // +5 = dT/2. Remove?
-    return isnormal(r) ? r : configuration.min_flow_setpoint;
+    const float exp = 1.0f / configuration.radiator_exponent;
+    const float r = pow(c, exp) * pow(dt, exp) + 5 + rt; // +5 = dT/2. Remove?
+    return isnormal(r) ? r : 0.0f;
   }
 
   /// @brief Executes a command.
@@ -411,8 +408,6 @@ protected:
   CentralHeatingInterface &chif;
 
   float manual_setpoint = 30.0f;
-
-  float max_flow_setpoint = 80.0f;
 
   float outside_air_temperature = nanf("");
 
@@ -477,7 +472,7 @@ protected:
     }
 
     if (!spike_protect_active) {
-      if (configuration.min_flow_setpoint <= to_setpoint && to_setpoint <= max_flow_setpoint)
+      if (configuration.min_flow_setpoint <= to_setpoint && to_setpoint <= chif.max_flow_setpoint())
         chif.enable();
       else
         chif.disable();
@@ -559,7 +554,7 @@ public:
   virtual void set_max_flow_setpoint_bounds(float min, float max) override {
     Base::set_max_flow_setpoint_bounds(min, max);
     for (size_t i = 0; i < NUM_PIDS; i++)
-      pids[i].set_output_bounds(Base::configuration.min_flow_setpoint, max);
+      pids[i].set_output_bounds(min, Base::chif.max_flow_setpoint());
   }
 
   virtual float room_setpoint(uint8_t id) const {
@@ -805,11 +800,12 @@ public:
 
   virtual float flow_setpoint() override {
     if (Base::is_automatic()) {
+      const float max_flow_setpoint = Base::chif.max_flow_setpoint();
       const float wcsp = Base::weather_compensated_flow_setpoint();
       const float t = mixed_demand();
       const float range = max_flow_setpoint - wcsp;
       const float r = wcsp + (t * range);
-      return fmaxf(fminf(r, max_flow_setpoint), Base::configuration.min_flow_setpoint);
+      return fminf(r, max_flow_setpoint);
     } else
       return Base::flow_setpoint();
   }
@@ -848,7 +844,6 @@ public:
 
 protected:
   using Base::configuration;
-  using Base::max_flow_setpoint;
   using Base::time;
   uint8_t max_id_seen = 0;
 

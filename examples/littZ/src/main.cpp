@@ -18,6 +18,9 @@ LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 #include <hal/nrf_power.h>
 
 extern "C" {
+#include <zb_mem_config_max.h>
+#include <zboss_api.h>
+
 #include <addons/zcl/zb_zcl_basic_addons.h>
 #include <zb_errors.h>
 #include <zb_nrf_platform.h>
@@ -238,7 +241,7 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
 #define BASIC_PH_ENV ZB_ZCL_BASIC_ENV_UNSPECIFIED
 #define BASIC_SW_BUILD_ID "0.0.3"
 
-static void reboot(bool save_statistics = false);
+static void reboot(bool fatal = true);
 
 extern "C" {
 void mpsl_assert_handle(const char *file, uint32_t line) {
@@ -459,6 +462,8 @@ static void start_time_sync() {
   time_sync_in_progress = true;
 }
 
+static void update_zcl_statistics();
+
 zb_bool_t rtc_cb(zb_uint32_t time) { return ZB_TRUE; }
 
 static bool zb_stack_initialised = false;
@@ -505,7 +510,7 @@ void zboss_signal_handler(zb_bufid_t bufid) {
     if (nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE) {
       if (zb_stack_initialised && !zb_joining_signal_received) {
         LOG_ERR("Broken zigbee rejoin procedure detected, rebooting the device.");
-        reboot(true);
+        reboot(false);
       }
     }
     break;
@@ -523,6 +528,7 @@ void zboss_signal_handler(zb_bufid_t bufid) {
   case ZB_BDB_SIGNAL_DEVICE_REBOOT:
   case ZB_BDB_SIGNAL_STEERING: {
     start_time_sync();
+    update_zcl_statistics();
     read_demand_from_bound_thermostats();
     break;
   }
@@ -978,7 +984,11 @@ static void initialize_clusters(void) {
 }
 
 // The crudest RTC; a timer running at a 1sec period.
-K_TIMER_DEFINE(rtc_timer, [](struct k_timer *) { dev_ctx.time.time++; }, NULL);
+static void non_macro_log_warn(const char *msg) { LOG_WRN("%s", msg); }
+
+K_TIMER_DEFINE(
+    rtc_timer, [](struct k_timer *) { dev_ctx.time.time++; },
+    [](struct k_timer *) { non_macro_log_warn("RTC timer stopped"); });
 
 static zb_bool_t zb_zcl_set_real_time_clock(zb_uint32_t time);
 
@@ -1071,7 +1081,8 @@ public:
 
 class MyTransport : public Master<ZephyrTimer, ZephyrMutex, ZephyrSemaphore, ZephyrTime, ZephyrQueue, ZephyrIO> {
 public:
-  MyTransport(const ZephyrPins &pins, const CentralHeatingInterface &chif) : Master(pins), state(INIT), chif(chif) {}
+  MyTransport(const ZephyrPins &pins, const CentralHeatingInterface &chif, uint32_t &network_timeouts)
+      : Master(pins), state(INIT), chif(chif), network_timeouts(network_timeouts) {}
 
   virtual ~MyTransport() = default;
 
@@ -1184,7 +1195,8 @@ public:
     if (0 < last_network_activity_time && last_network_activity_time <= now &&
         now - last_network_activity_time > 15 * 60 * 1e6) {
       LOG_ERR("network activity timeout; rebooting the device");
-      reboot(true);
+      network_timeouts++;
+      reboot(false);
     }
   }
 
@@ -1203,6 +1215,7 @@ protected:
   size_t master_index = 0;
   const CentralHeatingInterface &chif;
   uint64_t last_network_activity_time = 0;
+  uint32_t &network_timeouts;
 };
 
 #define USE_DEMAND_DRIVEN_THERMOSTAT
@@ -1247,19 +1260,25 @@ class MyApp : public RichApplication, public MyThermostat, public MyScheduler {
   struct Statistics {
     MyTransport::Statistics &transport;
     MyThermostat::Statistics &thermostat;
+    uint32_t network_timeouts = 0;
 
     Statistics(MyTransport::Statistics &transport, MyThermostat::Statistics &thermostat)
-        : transport(transport), thermostat(thermostat) {}
+        : transport(transport), thermostat(thermostat), network_timeouts(0) {}
 
     bool serialize(uint8_t *buf, size_t sz) const {
-      return thermostat.serialize(buf, sz) && transport.serialize(buf, sz);
+      using litt::serialize;
+      return thermostat.serialize(buf, sz) && transport.serialize(buf, sz) && serialize(network_timeouts, buf, sz);
     }
 
     bool deserialize(const uint8_t *buf, size_t sz) {
-      return thermostat.deserialize(buf, sz) && transport.deserialize(buf, sz);
+      using litt::deserialize;
+      return thermostat.deserialize(buf, sz) && transport.deserialize(buf, sz) &&
+             deserialize(network_timeouts, buf, sz);
     }
 
-    size_t serialized_size() const { return thermostat.serialized_size() + transport.serialized_size(); }
+    size_t serialized_size() const {
+      return thermostat.serialized_size() + transport.serialized_size() + sizeof(network_timeouts);
+    }
   };
 #pragma pack(pop)
 
@@ -1275,8 +1294,9 @@ public:
         MyThermostat(boiler.ch1, {2.75f, 0.0f}, 21.0f),
 #endif
         MyScheduler(), configuration(MyThermostat::configuration, MyScheduler::configuration),
-        statistics(transport.statistics, MyThermostat::statistics), transport(pins, boiler.ch1),
-        boiler(transport, *this), statistics_timer(30e6, 60 * 60 * 1e6, statistics_ftick, nullptr, this) {
+        statistics(transport.statistics, MyThermostat::statistics),
+        transport(pins, boiler.ch1, statistics.network_timeouts), boiler(transport, *this),
+        statistics_timer(30e6, 60 * 60 * 1e6, statistics_ftick, nullptr, this) {
 
     transport.set_frame_callback(RichApplication::sprocess, this);
 
@@ -1425,10 +1445,10 @@ public:
 
   virtual void on_max_flow_setpoint_bounds_change(const FlowSetpointBounds &from,
                                                   const FlowSetpointBounds &to) override {
+    // Note: These are upper/lower bounds on _max_ flow temperature setpoint. We always want the max.
     LOG_DBG("max flow setpoint bounds := [%u,%u]", to.lower_bound, to.upper_bound);
     MyThermostat::set_max_flow_setpoint_bounds(to.lower_bound, to.upper_bound);
-    // Check: f88 conversion ok?
-    transport.tx(Frame(WriteData, maxtset.nr, to_f88(((int)to.upper_bound) << 8)));
+    transport.tx(Frame(WriteData, maxtset.nr, (float)to.upper_bound));
   }
 
   virtual void on_flow_setpoint_change(float from, float to, bool approximated) override {
@@ -1661,7 +1681,7 @@ protected:
   OpenTherm::BoilerInterface<MyTransport> boiler;
   ZephyrTimer statistics_timer;
 
-  K_THREAD_STACK_DECLARE_STATIC(tx_thread_stack, 4096);
+  K_THREAD_STACK_DECLARE_STATIC(tx_thread_stack, 8192);
   struct k_thread tx_thread;
   k_tid_t tx_thread_tid = 0;
 
@@ -1671,7 +1691,7 @@ protected:
     app->transport.tx_forever();
   }
 
-  K_THREAD_STACK_DECLARE_STATIC(rx_thread_stack, 4096);
+  K_THREAD_STACK_DECLARE_STATIC(rx_thread_stack, 8192);
   struct k_thread rx_thread;
   k_tid_t rx_thread_tid = 0;
 
@@ -1813,13 +1833,15 @@ MyApp &app() {
   return *r;
 }
 
-static void reboot(bool save_statistics) {
-  if (save_statistics)
+static void reboot(bool fatal) {
+  if (!fatal)
     app().save_statistics();
   LOG_ERR("rebooting the device");
   LOG_PANIC();
   zb_reset(0);
 }
+
+static void update_zcl_statistics() { app().update_zcl_statistics(); }
 
 bool is_known(const zb_ieee_addr_t addr) { return app().is_known(addr); }
 
@@ -1853,18 +1875,21 @@ static void zcl_device_cb(zb_uint8_t bufid) {
 
   cb_param->status = RET_OK;
 
+  bool handled = false;
+
   if (cb_param->endpoint == ENDPOINT_ID) {
     switch (cb_param->device_cb_id) {
-    case ZB_ZCL_SET_ATTR_VALUE_CB_ID: /* write attribute */
+    case ZB_ZCL_SET_ATTR_VALUE_CB_ID: { /* write attribute */
       switch (cb_param->cb_param.set_attr_value_param.cluster_id) {
       case ZB_ZCL_CLUSTER_ID_OPENTHERM:
         switch (cb_param->cb_param.set_attr_value_param.attr_id) {
         case ZB_ZCL_ATTR_OPENTHERM_STATUS_ID: {
           auto nv = cb_param->cb_param.set_attr_value_param.values.data16 >> 8;
           app().set_opentherm_status(nv);
+          handled = true;
         } break;
         }
-      case ZB_ZCL_CLUSTER_ID_THERMOSTAT:
+      case ZB_ZCL_CLUSTER_ID_THERMOSTAT: {
         switch (cb_param->cb_param.set_attr_value_param.attr_id) {
         case ZB_ZCL_ATTR_THERMOSTAT_SYSTEM_MODE_ID: {
           auto nv = cb_param->cb_param.set_attr_value_param.values.data8;
@@ -1872,16 +1897,51 @@ static void zcl_device_cb(zb_uint8_t bufid) {
             dev_ctx.thermostat.system_mode = nv = ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF;
           app().set_mode(nv == ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF ? MyThermostat::Mode::OFF
                                                                  : MyThermostat::Mode::MANUAL);
+          handled = true;
+          break;
+        }
+        case ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID: {
+          auto nv = cb_param->cb_param.set_attr_value_param.values.data16;
+          app().configuration.thermostat.weather_compensation_ref_temp = nv / 100.0f;
+          handled = true;
+          break;
+        }
+        case ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID: {
+          auto nv = cb_param->cb_param.set_attr_value_param.values.data16;
+          app().configuration.thermostat.heat_loss_constant = nv / 100.0f;
+          handled = true;
+          break;
+        }
+        case ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID: {
+          auto nv = cb_param->cb_param.set_attr_value_param.values.data16;
+          app().configuration.thermostat.radiator_exponent = nv / 100.0f;
+          handled = true;
           break;
         }
         }
         break;
       }
+      case ZB_ZCL_CLUSTER_ID_TIME:
+        if (ZB_ZCL_ATTR_TIME_TIME_ID <= cb_param->cb_param.set_attr_value_param.attr_id &&
+            cb_param->cb_param.set_attr_value_param.attr_id <= ZB_ZCL_ATTR_TIME_VALID_UNTIL_TIME_ID)
+          handled = true;
+        break;
+      }
+      if (!handled) {
+        LOG_ERR("unhandled set-attribute command: [:%02x] %04x/%04x", cb_param->endpoint,
+                cb_param->cb_param.set_attr_value_param.cluster_id, cb_param->cb_param.set_attr_value_param.attr_id);
+        handled = true;
+      }
       break;
-    default:
-      LOG_DBG("unhandled device callback ID: %02x", cb_param->device_cb_id);
-      cb_param->status = RET_ERROR;
     }
+    default:
+      break;
+    }
+  }
+
+  if (!handled) {
+    LOG_ERR("unhandled device callback ID: [:%02x] cmd=%02x", cb_param->endpoint, cb_param->device_cb_id);
+    cb_param->status = RET_ERROR;
   }
 }
 
@@ -2226,7 +2286,6 @@ zb_ret_t zb_nvram_write_config(zb_uint8_t page, zb_uint32_t pos) {
 }
 
 void zb_nvram_read_statistics(zb_uint8_t page, zb_uint32_t pos, zb_uint16_t payload_length) {
-  LOG_DBG("page=%08x pos=%08u payload_length=%u", page, pos, payload_length);
   uint8_t buf[payload_length];
   const uint8_t *pbuf = &buf[0];
   size_t size = payload_length;
@@ -2235,8 +2294,6 @@ void zb_nvram_read_statistics(zb_uint8_t page, zb_uint32_t pos, zb_uint16_t payl
     LOG_ERR("zb_nvram_read_data: %d", r);
   else if (!app().statistics.deserialize(pbuf, size))
     LOG_ERR("statistics deserialization failed");
-  else
-    app().update_zcl_statistics();
 }
 
 zb_uint16_t zb_nvram_get_statistics_size(void) {
@@ -2245,12 +2302,10 @@ zb_uint16_t zb_nvram_get_statistics_size(void) {
   size_t max = zb_get_nvram_page_length();
   size_t r = sz > max ? 0 : sz;
   r += sizeof(int) - r % sizeof(int);
-  LOG_DBG("zb_nvram_get_statistics_size: r=%u", r);
   return r;
 }
 
 zb_ret_t zb_nvram_write_statistics(zb_uint8_t page, zb_uint32_t pos) {
-  LOG_DBG("page=%08x pos=%08u", page, pos);
   const size_t sz = zb_nvram_get_statistics_size();
   if (sz == 0)
     return RET_NO_MEMORY;

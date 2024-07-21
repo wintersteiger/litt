@@ -296,10 +296,12 @@ public:
 
   virtual void on_max_flow_setpoint_bounds_change(const FlowSetpointBounds &from,
                                                   const FlowSetpointBounds &to) override {
-    // Max TSet upper/lower bounds
-    // Check: Is lb the lower bound of Max T_set or of T_set?
-    set_max_flow_setpoint_bounds(0.0f, to.upper_bound);
-    transport.tx(Frame(WriteData, maxtset.nr, to_f88(to.upper_bound << 8)));
+    // Note: These are upper/lower bounds on _max_ flow temperature setpoint.
+    set_max_flow_setpoint_bounds(to.lower_bound, to.upper_bound);
+  }
+
+  virtual on_max_flow_setpoint_change(float from, float to) {
+    LOG_INF("max tset := %0.2f", to);
   }
 
   virtual void on_flow_temperature_change(float from, float to) override {

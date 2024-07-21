@@ -34,8 +34,9 @@ public:
 };
 
 struct DataID {
-  DataID(uint8_t nr, RWSpec, const char *, IDType, const char *, IDIndex *index, OpenTherm::TransportBase *t = nullptr)
-      : nr(nr), value(0) {
+  DataID(uint8_t nr, RWSpec, const char *, IDType, const char *, IDIndex *index, OpenTherm::TransportBase *t = nullptr,
+         uint16_t default_value = 0)
+      : nr(nr), value(default_value) {
     if (index)
       index->register_id(this);
   }
@@ -59,9 +60,9 @@ struct DataID {
 
 struct DataIDWithMeta : public DataID {
   DataIDWithMeta(uint8_t nr, RWSpec msg, const char *data_object, IDType type, const char *description, IDIndex *index,
-                 OpenTherm::TransportBase *t = nullptr)
-      : DataID(nr, msg, data_object, type, description, index, t), msg(msg), data_object(data_object), type(type),
-        description(description) {}
+                 OpenTherm::TransportBase *t = nullptr, uint16_t default_value = 0)
+      : DataID(nr, msg, data_object, type, description, index, t, default_value), msg(msg), data_object(data_object),
+        type(type), description(description) {}
 
   DataIDWithMeta &operator=(int v) { return static_cast<DataIDWithMeta &>(DataID::operator=(v)); }
 
@@ -165,10 +166,10 @@ public:
   DID tdhw2 = DID(32, ReadOnly, "Tdhw2", F88, "Domestic hot water temperature 2 (\xF8""C)", this);
   DID texhaust = DID(33, ReadOnly, "Texhaust", s16, "Boiler exhaust temperature (\xF8""C)", this);
   DID tdhwset_ub_lb = DID(48, ReadOnly, "T_dhwSet UB/LB", s8_s8, "DHW setpoint upper & lower bounds for adjustment (\xF8""C)", this);
-  DID max_tset_ub_lb = DID(49, ReadOnly, "MaxT_set UB/LB", s8_s8, "Max CH water setpoint upper & lower bounds for adjustment (\xF8""C)", this);
+  DID max_tset_ub_lb = DID(49, ReadOnly, "MaxT_set UB/LB", s8_s8, "Max CH water setpoint upper & lower bounds for adjustment (\xF8""C)", this, nullptr, 0xFFFF);
   DID hcratio_ub_lb = DID(50, ReadOnly , "Hcratio UB/LB", s8_s8, "OTC heat curve ratio upper & lower bounds for adjustment", this);
   DID tdhwset = DID(56, ReadWrite, "T_dhwSet", F88, "DHW setpoint (\xF8""C) (Remote parameter 1)", this);
-  DID maxtset = DID(57, ReadWrite, "MaxT_set", F88, "Max CH water setpoint (\xF8""C) (Remote parameters 2)", this);
+  DID maxtset = DID(57, ReadWrite, "MaxT_set", F88, "Max CH water setpoint (\xF8""C) (Remote parameters 2)", this, nullptr, 100);
   DID hcratio = DID(58, ReadWrite, "Hcratio", F88, "OTC heat curve ratio (\xF8""C) (Remote parameter 3)", this);
   DID remote_override = DID(100, ReadOnly, "Remote override function", flag8_, "Function of manual and program changes in master and remote room setpoint", this);
   DID oem_diagnostic_code = DID(115, ReadOnly, "OEM diagnostic code", u16, "OEM-specific diagnostic/service code", this);
@@ -399,10 +400,15 @@ public:
   /// @param to new status
   virtual void on_slave_status_change(uint8_t from, uint8_t to) {}
 
-  /// @brief Called when a change in max flow setpoint bounds is detected.
+  /// @brief Called when a change in maximum flow setpoint bounds is detected.
   /// @param from previous bounds
   /// @param to new bounds
   virtual void on_max_flow_setpoint_bounds_change(const FlowSetpointBounds &from, const FlowSetpointBounds &to) {}
+
+  /// @brief Called when the maximum flow setpoint changes.
+  /// @param from previous temperature
+  /// @param to new temperature
+  virtual void on_max_flow_setpoint_change(float from, float to) {}
 
   /// @brief Called when a change in flow temperature is detected.
   /// @param from previous flow temperature
@@ -471,6 +477,10 @@ public:
     case 28:
       if (changed)
         on_return_temperature_change(to_f88(before_value), to_f88(data_value));
+      break;
+    case 57:
+      if (changed)
+        on_max_flow_setpoint_change(to_f88(before_value), to_f88(data_value));
       break;
     default:;
     }
