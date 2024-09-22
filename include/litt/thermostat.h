@@ -83,13 +83,19 @@ public:
     // (Roughly, aluminium closer to 1.4, steel closer to 1.3.)
     float radiator_exponent = 1.3f;
 
+    // Minimum demand [%] to enable the CH interface. This is to avoid situations
+    // where the flame is lit without any demand (and thus all radiator valves are
+    // closed).
+    float minimum_demand = 0.05f;
+
     bool serialize(uint8_t *&buf, size_t &sz) const {
       using litt::serialize;
       return serialize(min_flow_setpoint, buf, sz) && serialize(tiny_cycle_minutes, buf, sz) &&
              serialize(short_cycle_minutes, buf, sz) && serialize(spike_protection, buf, sz) &&
              serialize(spike_protection_deadband, buf, sz) && serialize(mode, buf, sz) &&
              serialize(mixing_function, buf, sz) && serialize(weather_compensation_ref_temp, buf, sz) &&
-             serialize(heat_loss_constant, buf, sz) && serialize(radiator_exponent, buf, sz);
+             serialize(heat_loss_constant, buf, sz) && serialize(radiator_exponent, buf, sz) &&
+             serialize(minimum_demand, buf, sz);
     }
 
     bool deserialize(const uint8_t *&buf, size_t &sz) {
@@ -98,13 +104,15 @@ public:
              deserialize(short_cycle_minutes, buf, sz) && deserialize(spike_protection, buf, sz) &&
              deserialize(spike_protection_deadband, buf, sz) && deserialize(mode, buf, sz) &&
              deserialize(mixing_function, buf, sz) && deserialize(weather_compensation_ref_temp, buf, sz) &&
-             deserialize(heat_loss_constant, buf, sz) && deserialize(radiator_exponent, buf, sz);
+             deserialize(heat_loss_constant, buf, sz) && deserialize(radiator_exponent, buf, sz) &&
+             deserialize(minimum_demand, buf, sz);
     }
 
     size_t serialized_size() const {
       return sizeof(min_flow_setpoint) + sizeof(tiny_cycle_minutes) + sizeof(short_cycle_minutes) +
              sizeof(spike_protection) + sizeof(spike_protection_deadband) + sizeof(mode) + sizeof(mixing_function) +
-             sizeof(weather_compensation_ref_temp) + sizeof(heat_loss_constant) + sizeof(radiator_exponent);
+             sizeof(weather_compensation_ref_temp) + sizeof(heat_loss_constant) + sizeof(radiator_exponent) +
+             sizeof(minimum_demand);
     }
   };
 #pragma pack(pop)
@@ -261,7 +269,7 @@ public:
       break;
     case Mode::AUTOMATIC: {
       float flow = chif.flow_temperature();
-      check_spike_protect(flow, flow, from, to);
+      check_protect(flow, flow, from, to);
       if (!tiny_cycle_protect_active || to > from)
         chif.set_flow_setpoint(to);
       break;
@@ -279,7 +287,7 @@ public:
   virtual void on_flow_temperature_change(float from, float to) {
     if (!is_off() && !is_manual()) {
       float setpoint = flow_setpoint();
-      check_spike_protect(from, to, setpoint, setpoint);
+      check_protect(from, to, setpoint, setpoint);
     }
   }
 
@@ -403,6 +411,9 @@ public:
     disengage_tiny_cycle_protect();
   }
 
+  /// @brief Check whether all conditions are satisfied to enable the CH interface
+  virtual bool conditions_satisfied() const { return true; }
+
 protected:
   TimeType time;
   CentralHeatingInterface &chif;
@@ -449,34 +460,43 @@ protected:
     }
   }
 
-  void check_spike_protect(float from_flow, float to_flow, float from_setpoint, float to_setpoint) {
-    if (!configuration.spike_protection || is_off() || is_manual())
+  void enable_chif_if_setpoint_within(float to_setpoint) {
+    if (configuration.min_flow_setpoint <= to_setpoint &&
+        to_setpoint <= chif.max_flow_setpoint() &&
+        conditions_satisfied())
+      chif.enable();
+    else
+      chif.disable();
+  }
+
+  void check_protect(float from_flow, float to_flow, float from_setpoint, float to_setpoint) {
+    if (is_off() || is_manual())
       return;
 
-    if (!spike_protect_active) {
-      // LOG_DBG("%d %0.2f %0.2f %0.2f %0.2f %d", chif.flame(), from_flow, to_flow, from_setpoint,
-      //         to_setpoint, (from_setpoint < from_flow && to_setpoint >= to_flow));
+    if (configuration.spike_protection) {
+      if (!spike_protect_active) {
+        // LOG_DBG("%d %0.2f %0.2f %0.2f %0.2f %d", chif.flame(), from_flow, to_flow, from_setpoint,
+        //         to_setpoint, (from_setpoint < from_flow && to_setpoint >= to_flow));
 
-      // Note: chif.flame() may not be up to date yet; to_flow > from_flow also indicates that the flame is on. If so,
-      // we do not want to trigger spike protection.
-      if (!(chif.flame() || (from_flow != 0.0f && to_flow > from_flow)) &&
-          ((from_setpoint < from_flow && to_setpoint >= to_flow) ||
-           (to_setpoint >= to_flow && to_flow > to_setpoint - configuration.spike_protection_deadband)))
-        engage_spike_proctect();
-    } else if (to_flow <= to_setpoint - configuration.spike_protection_deadband ||
-               to_flow >= to_setpoint + configuration.spike_protection_deadband) {
-      // LOG_DBG("release: %d %0.2f %0.2f %0.2f %0.2f %d %d", chif.flame(), from_flow, to_flow,
-      //         from_setpoint, to_setpoint, (to_flow <= to_setpoint - settings.spike_protect_deadband),
-      //         (to_flow >= to_setpoint + settings.spike_protect_deadband));
-      disengage_spike_protect();
+        // Note: chif.flame() may not be up to date yet; to_flow > from_flow also indicates that the flame is on. If so,
+        // we do not want to trigger spike protection.
+        if (!(chif.flame() || (from_flow != 0.0f && to_flow > from_flow)) &&
+            ((from_setpoint < from_flow && to_setpoint >= to_flow) ||
+              (to_setpoint >= to_flow && to_flow > to_setpoint - configuration.spike_protection_deadband)))
+          engage_spike_proctect();
+      } else if (to_flow <= to_setpoint - configuration.spike_protection_deadband ||
+                  to_flow >= to_setpoint + configuration.spike_protection_deadband) {
+        // LOG_DBG("release: %d %0.2f %0.2f %0.2f %0.2f %d %d", chif.flame(), from_flow, to_flow,
+        //         from_setpoint, to_setpoint, (to_flow <= to_setpoint - settings.spike_protect_deadband),
+        //         (to_flow >= to_setpoint + settings.spike_protect_deadband));
+        disengage_spike_protect();
+      }
     }
+    else
+      spike_protect_active = false;
 
-    if (!spike_protect_active) {
-      if (configuration.min_flow_setpoint <= to_setpoint && to_setpoint <= chif.max_flow_setpoint())
-        chif.enable();
-      else
-        chif.disable();
-    }
+    if (!configuration.spike_protection || !spike_protect_active)
+      enable_chif_if_setpoint_within(to_setpoint);
   }
 
   TimerType tiny_cycle_protect_timer;
@@ -830,6 +850,10 @@ public:
       return Base::execute(f);
     }
     }
+  }
+
+  virtual bool conditions_satisfied() const override {
+    return Base::conditions_satisfied() && mixed_demand() >= configuration.minimum_demand;
   }
 
   void delete_demander(uint8_t id) {

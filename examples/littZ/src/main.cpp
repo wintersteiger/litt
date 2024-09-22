@@ -1871,7 +1871,7 @@ static void zcl_device_cb(zb_uint8_t bufid) {
   if (!cb_param)
     return;
 
-  LOG_DBG("ZCL device callback: endpoint=%02x, device_cb_id=%02x", cb_param->endpoint, cb_param->device_cb_id);
+  // LOG_DBG("ZCL device callback: endpoint=%02x, device_cb_id=%02x", cb_param->endpoint, cb_param->device_cb_id);
 
   cb_param->status = RET_OK;
 
@@ -2630,12 +2630,12 @@ SHELL_CMD_REGISTER(litt, &sub_litt, "litt commands", NULL);
 int main(void) {
   log_init();
 
-  LOG_INF("Starting littZ on %s", CONFIG_BOARD);
-  LOG_INF("Build date: %s %s", __DATE__, __TIME__);
+  LOG_INF("starting littZ on %s", CONFIG_BOARD);
+  LOG_INF("build date: %s %s", __DATE__, __TIME__);
 
 #if NRF_POWER_HAS_MAINREGSTATUS == 1
   nrf_power_mainregstatus_t pwr_status = nrf_power_mainregstatus_get(NRF_POWER);
-  LOG_INF("Power mode: %s", (pwr_status == POWER_MAINREGSTATUS_MAINREGSTATUS_Normal) ? "normal" : "high");
+  LOG_INF("power mode: %s", (pwr_status == POWER_MAINREGSTATUS_MAINREGSTATUS_Normal) ? "normal" : "high");
 #endif
 
   // zb_nvram_erase();
