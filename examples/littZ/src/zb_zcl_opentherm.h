@@ -25,48 +25,58 @@ enum zb_zcl_opentherm_info_attr_e {
 };
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_OPENTHERM_VERSION_ID(data_ptr)                                              \
-  { ZB_ZCL_ATTR_OPENTHERM_VERSION_ID, ZB_ZCL_ATTR_TYPE_U8, ZB_ZCL_ATTR_ACCESS_READ_ONLY, (void *)data_ptr }
+  {                                                                                                                    \
+    ZB_ZCL_ATTR_OPENTHERM_VERSION_ID, ZB_ZCL_ATTR_TYPE_U8, ZB_ZCL_ATTR_ACCESS_READ_ONLY,                               \
+        (ZB_ZCL_NON_MANUFACTURER_SPECIFIC), (void *)data_ptr                                                           \
+  }
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_OPENTHERM_STATUS_ID(data_ptr)                                               \
   {                                                                                                                    \
     ZB_ZCL_ATTR_OPENTHERM_STATUS_ID, ZB_ZCL_ATTR_TYPE_U16,                                                             \
-        ZB_ZCL_ATTR_ACCESS_READ_WRITE | ZB_ZCL_ATTR_ACCESS_REPORTING, (void *)data_ptr                                 \
+        ZB_ZCL_ATTR_ACCESS_READ_WRITE | ZB_ZCL_ATTR_ACCESS_REPORTING, (ZB_ZCL_NON_MANUFACTURER_SPECIFIC),              \
+        (void *)data_ptr                                                                                               \
   }
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_OPENTHERM_FLOW_SETPOINT_ID(data_ptr)                                        \
   {                                                                                                                    \
     ZB_ZCL_ATTR_OPENTHERM_FLOW_SETPOINT_ID, ZB_ZCL_ATTR_TYPE_S16,                                                      \
-        ZB_ZCL_ATTR_ACCESS_READ_WRITE | ZB_ZCL_ATTR_ACCESS_REPORTING, (void *)data_ptr                                 \
+        ZB_ZCL_ATTR_ACCESS_READ_WRITE | ZB_ZCL_ATTR_ACCESS_REPORTING, (ZB_ZCL_NON_MANUFACTURER_SPECIFIC),              \
+        (void *)data_ptr                                                                                               \
   }
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_OPENTHERM_FLOW_TEMPERATURE_ID(data_ptr)                                     \
   {                                                                                                                    \
     ZB_ZCL_ATTR_OPENTHERM_FLOW_TEMPERATURE_ID, ZB_ZCL_ATTR_TYPE_S16,                                                   \
-        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (void *)data_ptr                                  \
+        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (ZB_ZCL_NON_MANUFACTURER_SPECIFIC),               \
+        (void *)data_ptr                                                                                               \
   }
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_OPENTHERM_RETURN_TEMPERATURE_ID(data_ptr)                                   \
   {                                                                                                                    \
     ZB_ZCL_ATTR_OPENTHERM_RETURN_TEMPERATURE_ID, ZB_ZCL_ATTR_TYPE_S16,                                                 \
-        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (void *)data_ptr                                  \
+        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (ZB_ZCL_NON_MANUFACTURER_SPECIFIC),               \
+        (void *)data_ptr                                                                                               \
   }
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_OPENTHERM_FRAMES_DROPPED_ID(data_ptr)                                       \
   {                                                                                                                    \
     ZB_ZCL_ATTR_OPENTHERM_FRAMES_DROPPED_ID, ZB_ZCL_ATTR_TYPE_U32,                                                     \
-        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (void *)data_ptr                                  \
+        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (ZB_ZCL_NON_MANUFACTURER_SPECIFIC),               \
+        (void *)data_ptr                                                                                               \
   }
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_OPENTHERM_FRAMES_LATE_ID(data_ptr)                                          \
   {                                                                                                                    \
     ZB_ZCL_ATTR_OPENTHERM_FRAMES_LATE_ID, ZB_ZCL_ATTR_TYPE_U32,                                                        \
-        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (void *)data_ptr                                  \
+        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (ZB_ZCL_NON_MANUFACTURER_SPECIFIC),               \
+        (void *)data_ptr                                                                                               \
   }
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_OPENTHERM_LAST_CMD_RESULT_ID(data_ptr)                                      \
   {                                                                                                                    \
     ZB_ZCL_ATTR_OPENTHERM_LAST_CMD_RESULT_ID, ZB_ZCL_ATTR_TYPE_U32,                                                    \
-        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (void *)data_ptr                                  \
+        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, (ZB_ZCL_NON_MANUFACTURER_SPECIFIC),               \
+        (void *)data_ptr                                                                                               \
   }
 
 #define ZB_ZCL_OPENTHERM_REPORT_ATTR_COUNT 7

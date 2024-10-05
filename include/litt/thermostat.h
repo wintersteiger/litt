@@ -52,16 +52,16 @@ public:
     // Minimum flow setpoint [C]
     float min_flow_setpoint = 30.0f;
 
-    // Tiny cycle classification threshold
+    // Tiny cycle classification threshold [minutes]
     float tiny_cycle_minutes = 1.0f;
 
-    // Short cycle classification threshold
+    // Short cycle classification threshold [minutes]
     float short_cycle_minutes = 8.0f;
 
     // Spike protection
     bool spike_protection = true;
 
-    // Spike protection deadband
+    // Spike protection deadband [C]
     float spike_protection_deadband = 10.0f;
 
     // Operating mode
@@ -382,7 +382,7 @@ public:
     const float rt = configuration.weather_compensation_ref_temp;
     const float dt = rt - outside_air_temperature;
     const float exp = 1.0f / configuration.radiator_exponent;
-    const float r = pow(c, exp) * pow(dt, exp) + 5 + rt; // +5 = dT/2. Remove?
+    const float r = powf(c, exp) * powf(dt, exp) + 5.0f + rt; // +5 = dT/2. Remove?
     return isnormal(r) ? r : 0.0f;
   }
 
@@ -898,7 +898,7 @@ protected:
   float mixed_demand() const {
     switch (configuration.mixing_function) {
     case Base::MixingFunction::AVERAGE: {
-      double sum = 0.0;
+      float sum = 0.0;
       size_t n = 0;
       for (size_t i = 0; i < NUM_DEMANDS && i <= max_id_seen; i++) {
         const Demand &d = demands[i];

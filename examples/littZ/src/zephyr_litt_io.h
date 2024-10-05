@@ -53,7 +53,7 @@ public:
   virtual void log(const char *fmt, ...) override {
     va_list args;
     va_start(args, fmt);
-    log2_generic(LOG_LEVEL_WRN, fmt, args);
+    log_generic(LOG_LEVEL_WRN, fmt, args);
     va_end(args);
   }
 

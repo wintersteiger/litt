@@ -23,7 +23,7 @@ static zb_ret_t zb_zcl_opentherm_check_value(zb_uint16_t attr_id, zb_uint8_t end
   return RET_OK;
 }
 
-static void zb_zcl_opentherm_write_attr_hook(zb_uint8_t endpoint, zb_uint16_t attr_id, zb_uint8_t *new_value)
+static void zb_zcl_opentherm_write_attr_hook(zb_uint8_t endpoint, zb_uint16_t attr_id, zb_uint8_t *new_value, zb_uint16_t manuf_code)
 {
   ZVUNUSED(endpoint);
   ZVUNUSED(attr_id);

@@ -83,7 +83,7 @@ struct Frame {
   }
 
   Frame(MsgType msg_type, uint8_t id, float value) {
-    data = (static_cast<uint32_t>(msg_type) << 28) | (static_cast<uint32_t>(id) << 16) | ((uint16_t)(value * 256.0));
+    data = (static_cast<uint32_t>(msg_type) << 28) | (static_cast<uint32_t>(id) << 16) | ((uint16_t)(value * 256.0f));
   }
 
   bool parity() const { return data >> 31 != 0; }

@@ -85,7 +85,7 @@ struct DataIDWithMeta : public DataID {
       break;
     case F88: {
       float f = to_f88(value);
-      snprintf(buf, sizeof(buf), "%.2f", f);
+      snprintf(buf, sizeof(buf), "%.2f", (double)f);
       break;
     }
     case flag8_u8:
