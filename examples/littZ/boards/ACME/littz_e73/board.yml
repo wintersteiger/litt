@@ -1,0 +1,5 @@
+board:
+  name: littz_e73
+  vendor: ACME
+  socs:
+    - name: nrf52840

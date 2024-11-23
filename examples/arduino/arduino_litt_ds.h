@@ -54,11 +54,31 @@ protected:
   };
 };
 
+class ArduinoMutex : public litt::Mutex {
+public:
+  ArduinoMutex() : litt::Mutex() {
+    if (!(s = xSemaphoreCreateMutexStatic(&state)))
+      llog("xSemaphoreCreateMutexStatic failed");
+    xSemaphoreGive(s);
+  }
+  virtual ~ArduinoMutex() = default;
+
+  virtual bool lock() override { return xSemaphoreTake(s, portMAX_DELAY); }
+  virtual void unlock() override { xSemaphoreGive(s); }
+  virtual bool lock_timeout(uint64_t us) override {
+    return xSemaphoreTake(s, pdMS_TO_TICKS(us) / 1000);
+  }
+
+private:
+  SemaphoreHandle_t s;
+  StaticSemaphore_t state;
+};
+
 class ArduinoSemaphore : public litt::BinarySemaphore {
 public:
   ArduinoSemaphore() : litt::BinarySemaphore() {
     if (!(s = xSemaphoreCreateBinaryStatic(&state)))
-      llog("xSemaphoreCreateCounting failed");
+      llog("xSemaphoreCreateBinaryStatic failed");
     xSemaphoreGive(s);
   }
   virtual ~ArduinoSemaphore() = default;

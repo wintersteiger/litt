@@ -72,7 +72,7 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
 #define NUM_IN_OUT_CLUSTERS (IN_CLUSTER_NUM + OUT_CLUSTER_NUM)
 
 #define REPORT_ATTR_COUNT                                                                                              \
-  (ZB_ZCL_THERMOSTAT_REPORT_ATTR_COUNT + 15 + ZB_ZCL_OPENTHERM_REPORT_ATTR_COUNT + ZB_ZCL_TIME_REPORT_ATTR_COUNT)
+  (ZB_ZCL_THERMOSTAT_REPORT_ATTR_COUNT + 16 + ZB_ZCL_OPENTHERM_REPORT_ATTR_COUNT + ZB_ZCL_TIME_REPORT_ATTR_COUNT)
 
 #define DECLARE_CLUSTER_LIST(cluster_list_name, basic_attr_list, thermostat_attr_list, opentherm_attr_list,            \
                              time_attr_list, diagnostics_attr_list)                                                    \
@@ -197,14 +197,17 @@ enum zb_zcl_opentherm_info_plus_attr_e {
     attr_list, local_temperature, outdoor_temperature, abs_min_heat_setpoint_limit, abs_max_heat_setpoint_limit,       \
     abs_min_cool_setpoint_limit, abs_max_cool_setpoint_limit, PI_cooling_demand, PI_heating_demand,                    \
     HVAC_system_type_configuration, local_temperature_calibration, occupied_cooling_setpoint,                          \
-    occupied_heating_setpoint, unoccupied_cooling_setpoint, unoccupied_heating_setpoint, min_heat_setpoint_limit,      \
-    max_heat_setpoint_limit, min_cool_setpoint_limit, max_cool_setpoint_limit, min_setpoint_dead_band, remote_sensing, \
-    control_seq_of_operation, system_mode, start_of_week, number_of_weekly_transitions, number_of_daily_transitions,   \
-    programming_operation_mode, extra_status, spike_protection_count, tiny_cycles, short_cycles, normal_cycles,        \
-    tiny_cycle_protection_count, weather_compensation_ref_temp, heat_loss_constant, radiator_exponent)                 \
+    occupied_heating_setpoint, occupied_heating_setpoint_ms, unoccupied_cooling_setpoint, unoccupied_heating_setpoint, \
+    min_heat_setpoint_limit, max_heat_setpoint_limit, min_cool_setpoint_limit, max_cool_setpoint_limit,                \
+    min_setpoint_dead_band, remote_sensing, control_seq_of_operation, system_mode, system_mode_ms, start_of_week,      \
+    number_of_weekly_transitions, number_of_daily_transitions, programming_operation_mode, extra_status,               \
+    spike_protection_count, tiny_cycles, short_cycles, normal_cycles, tiny_cycle_protection_count,                     \
+    weather_compensation_ref_temp, heat_loss_constant, radiator_exponent)                                              \
   ZB_ZCL_START_DECLARE_ATTRIB_LIST_CLUSTER_REVISION(attr_list, ZB_ZCL_THERMOSTAT)                                      \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_LOCAL_TEMPERATURE_ID, (local_temperature))                               \
-  ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_OUTDOOR_TEMPERATURE_ID, (outdoor_temperature))                           \
+  ZB_ZCL_SET_MANUF_SPEC_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_OUTDOOR_TEMPERATURE_ID, ZB_ZCL_ATTR_TYPE_S16,                 \
+                                  ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, BASIC_MANUF_ID,         \
+                                  (outdoor_temperature))                                                               \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_ABS_MIN_HEAT_SETPOINT_LIMIT_ID, (abs_min_heat_setpoint_limit))           \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_ABS_MAX_HEAT_SETPOINT_LIMIT_ID, (abs_max_heat_setpoint_limit))           \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_ABS_MIN_COOL_SETPOINT_LIMIT_ID, (abs_min_cool_setpoint_limit))           \
@@ -215,6 +218,9 @@ enum zb_zcl_opentherm_info_plus_attr_e {
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_LOCAL_TEMPERATURE_CALIBRATION_ID, (local_temperature_calibration))       \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_OCCUPIED_COOLING_SETPOINT_ID, (occupied_cooling_setpoint))               \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_OCCUPIED_HEATING_SETPOINT_ID, (occupied_heating_setpoint))               \
+  ZB_ZCL_SET_MANUF_SPEC_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_OCCUPIED_HEATING_SETPOINT_ID, ZB_ZCL_ATTR_TYPE_S16,           \
+                                  ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, BASIC_MANUF_ID,         \
+                                  (occupied_heating_setpoint_ms))                                                      \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_UNOCCUPIED_COOLING_SETPOINT_ID, (unoccupied_cooling_setpoint))           \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_UNOCCUPIED_HEATING_SETPOINT_ID, (unoccupied_heating_setpoint))           \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_MIN_HEAT_SETPOINT_LIMIT_ID, (min_heat_setpoint_limit))                   \
@@ -225,6 +231,9 @@ enum zb_zcl_opentherm_info_plus_attr_e {
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_REMOTE_SENSING_ID, (remote_sensing))                                     \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_CONTROL_SEQUENCE_OF_OPERATION_ID, (control_seq_of_operation))            \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_SYSTEM_MODE_ID, (system_mode))                                           \
+  ZB_ZCL_SET_MANUF_SPEC_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_SYSTEM_MODE_ID, ZB_ZCL_ATTR_TYPE_8BIT_ENUM,                   \
+                                  ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, BASIC_MANUF_ID,         \
+                                  (system_mode_ms))                                                                    \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_START_OF_WEEK_ID, (start_of_week))                                       \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_NUMBER_OF_WEEKLY_TRANSITIONS_ID, (number_of_weekly_transitions))         \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_NUMBER_OF_DAILY_TRANSITIONS_ID, (number_of_daily_transitions))           \
@@ -251,7 +260,7 @@ enum zb_zcl_opentherm_info_plus_attr_e {
 #define BASIC_POWER_SOURCE ZB_ZCL_BASIC_POWER_SOURCE_DC_SOURCE
 #define BASIC_LOCATION_DESC "Boiler"
 #define BASIC_PH_ENV ZB_ZCL_BASIC_ENV_UNSPECIFIED
-#define BASIC_SW_BUILD_ID "0.0.3"
+#define BASIC_SW_BUILD_ID "0.0.4"
 
 static void reboot(bool fatal = true);
 
@@ -570,8 +579,8 @@ void zboss_signal_handler(zb_bufid_t bufid) {
 
 class AttributeBase {
 public:
-  AttributeBase(uint8_t role, uint16_t cluster_id, uint16_t attribute_id)
-      : role(role), cluster_id(cluster_id), attribute_id(attribute_id) {}
+  AttributeBase(uint8_t role, uint16_t cluster_id, uint16_t attribute_id, bool manufacturer_specific = false)
+      : role(role), cluster_id(cluster_id), attribute_id(attribute_id), manufacturer_specific(manufacturer_specific) {}
 
   virtual ~AttributeBase() = default;
 
@@ -580,6 +589,7 @@ public:
   uint8_t role;
   uint16_t cluster_id;
   uint16_t attribute_id;
+  bool manufacturer_specific;
 
 protected:
   virtual zb_uint8_t *next_value_ptr() = 0;
@@ -596,8 +606,13 @@ protected:
 
     if (req) {
       AttributeBase *attr = req->attribute;
-      zb_zcl_status_t r = zb_zcl_set_attr_val(ENDPOINT_ID, attr->cluster_id, attr->role, attr->attribute_id,
-                                              attr->next_value_ptr(), ZB_FALSE);
+      zb_zcl_status_t r = 0;
+      if (attr->manufacturer_specific)
+        r = zb_zcl_set_attr_val_manuf(ENDPOINT_ID, attr->cluster_id, attr->role, attr->attribute_id, BASIC_MANUF_ID,
+                                      attr->next_value_ptr(), ZB_FALSE);
+      else
+        r = zb_zcl_set_attr_val(ENDPOINT_ID, attr->cluster_id, attr->role, attr->attribute_id, attr->next_value_ptr(),
+                                ZB_FALSE);
       if (r != ZB_ZCL_STATUS_SUCCESS)
         LOG_ERR("error while updating %04x/%04x: status=%02x", attr->cluster_id, attr->attribute_id, r);
       else
@@ -653,10 +668,10 @@ ZephyrQueue<AttributeBase::UpdateRequest> AttributeBase::update_queue = ZephyrQu
 
 template <typename T> class Attribute : public AttributeBase {
 public:
-  Attribute(uint8_t role, uint16_t cluster_id, uint16_t attribute_id) : AttributeBase(role, cluster_id, attribute_id) {}
-
-  Attribute(uint8_t role, uint16_t cluster_id, uint16_t attribute_id, const T &initial_value)
-      : AttributeBase(role, cluster_id, attribute_id), data(initial_value), next_data(initial_value) {}
+  Attribute(uint8_t role, uint16_t cluster_id, uint16_t attribute_id, const T &initial_value,
+            bool manufacturer_specific = false)
+      : AttributeBase(role, cluster_id, attribute_id, manufacturer_specific), data(initial_value),
+        next_data(initial_value) {}
 
   virtual ~Attribute() = default;
 
@@ -706,20 +721,26 @@ protected:
   };
 };
 
-template <typename T> class ArrayAttribute : public Attribute<T> {
+// We wrap arrays in structs to enable default-initialization.
+template <typename T> struct Wrapped {
+  T x;
+};
+
+template <typename T> class ArrayAttribute : public Attribute<Wrapped<T>> {
 public:
-  ArrayAttribute(uint8_t role, uint16_t cluster_id, uint16_t attribute_id, const T &initial_value)
-      : Attribute<T>(role, cluster_id, attribute_id) {
+  ArrayAttribute(uint8_t role, uint16_t cluster_id, uint16_t attribute_id, const T &initial_value,
+                 bool manufacturer_specific = false)
+      : Attribute<Wrapped<T>>(role, cluster_id, attribute_id, {}, manufacturer_specific) {
     size_t n = sizeof(initial_value) / sizeof(initial_value[0]);
     for (size_t i = 0; i < n; i++)
-      Attribute<T>::data[i] = Attribute<T>::next_data[i] = initial_value[i];
+      Attribute<Wrapped<T>>::data.x[i] = Attribute<Wrapped<T>>::next_data.x[i] = initial_value[i];
   }
 
   virtual ~ArrayAttribute() = default;
 
   T &operator=(const T &value) {
-    memcpy(Attribute<T>::next_data, value, sizeof(T));
-    Attribute<T>::dirty = true;
+    memcpy(Attribute<Wrapped<T>>::next_data, value, sizeof(T));
+    Attribute<Wrapped<T>>::dirty = true;
     schedule_update(this);
     return *this;
   }
@@ -765,7 +786,7 @@ struct zb_zcl_thermostat_attrs_rich_t {
   Attribute<zb_int16_t> local_temperature = Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_LOCAL_TEMPERATURE_ID,
                                                                   ZB_ZCL_THERMOSTAT_LOCAL_TEMPERATURE_DEFAULT_VALUE);
   Attribute<zb_int16_t> outdoor_temperature =
-      Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_OUTDOOR_TEMPERATURE_ID, 0x8000);
+      Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_OUTDOOR_TEMPERATURE_ID, 0x8000, true);
   Attribute<zb_int16_t> abs_min_heat_setpoint_limit =
       Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_ABS_MIN_HEAT_SETPOINT_LIMIT_ID, 0);
   Attribute<zb_int16_t> abs_max_heat_setpoint_limit =
@@ -788,6 +809,8 @@ struct zb_zcl_thermostat_attrs_rich_t {
       Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_OCCUPIED_COOLING_SETPOINT_ID, 10000);
   Attribute<zb_int16_t> occupied_heating_setpoint =
       Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_OCCUPIED_HEATING_SETPOINT_ID, 0x0BB8);
+  Attribute<zb_int16_t> occupied_heating_setpoint_ms =
+      Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_OCCUPIED_HEATING_SETPOINT_ID, 0x0BB8, true);
   Attribute<zb_int16_t> unoccupied_cooling_setpoint =
       Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_UNOCCUPIED_COOLING_SETPOINT_ID, 10000);
   Attribute<zb_int16_t> unoccupied_heating_setpoint =
@@ -808,6 +831,8 @@ struct zb_zcl_thermostat_attrs_rich_t {
       Attribute<zb_uint8_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_CONTROL_SEQUENCE_OF_OPERATION_ID, 0x02);
   Attribute<zb_uint8_t> system_mode =
       Attribute<zb_uint8_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_SYSTEM_MODE_ID, ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF);
+  Attribute<zb_uint8_t> system_mode_ms =
+      Attribute<zb_uint8_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_SYSTEM_MODE_ID, ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF, true);
 
   Attribute<zb_uint8_t> start_of_week = Attribute<zb_uint8_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_START_OF_WEEK_ID, 0x01);
   Attribute<zb_uint8_t> number_of_weekly_transitions =
@@ -902,18 +927,18 @@ ZB_ZCL_DECLARE_THERMOSTAT_ATTRIB_LIST_EXT_PLUS(
     dev_ctx.thermostat.PI_cooling_demand.dptr(), dev_ctx.thermostat.PI_heating_demand.dptr(),
     dev_ctx.thermostat.HVAC_system_type_configuration.dptr(), dev_ctx.thermostat.local_temperature_calibration.dptr(),
     dev_ctx.thermostat.occupied_cooling_setpoint.dptr(), dev_ctx.thermostat.occupied_heating_setpoint.dptr(),
-    dev_ctx.thermostat.unoccupied_cooling_setpoint.dptr(), dev_ctx.thermostat.unoccupied_heating_setpoint.dptr(),
-    dev_ctx.thermostat.min_heat_setpoint_limit.dptr(), dev_ctx.thermostat.max_heat_setpoint_limit.dptr(),
-    dev_ctx.thermostat.min_cool_setpoint_limit.dptr(), dev_ctx.thermostat.max_cool_setpoint_limit.dptr(),
-    dev_ctx.thermostat.min_setpoint_dead_band.dptr(), dev_ctx.thermostat.remote_sensing.dptr(),
-    dev_ctx.thermostat.control_seq_of_operation.dptr(), dev_ctx.thermostat.system_mode,
-    dev_ctx.thermostat.start_of_week.dptr(), dev_ctx.thermostat.number_of_weekly_transitions.dptr(),
-    dev_ctx.thermostat.number_of_daily_transitions.dptr(), dev_ctx.thermostat.programming_operation_mode.dptr(),
-    dev_ctx.thermostat.extra_status.dptr(), dev_ctx.thermostat.spike_protection_count.dptr(),
-    dev_ctx.thermostat.tiny_cycles.dptr(), dev_ctx.thermostat.short_cycles.dptr(),
-    dev_ctx.thermostat.normal_cycles.dptr(), dev_ctx.thermostat.tiny_cycle_protection_count.dptr(),
-    dev_ctx.thermostat.weather_compensation_ref_temp.dptr(), dev_ctx.thermostat.heat_loss_constant.dptr(),
-    dev_ctx.thermostat.radiator_exponent.dptr());
+    dev_ctx.thermostat.occupied_heating_setpoint_ms.dptr(), dev_ctx.thermostat.unoccupied_cooling_setpoint.dptr(),
+    dev_ctx.thermostat.unoccupied_heating_setpoint.dptr(), dev_ctx.thermostat.min_heat_setpoint_limit.dptr(),
+    dev_ctx.thermostat.max_heat_setpoint_limit.dptr(), dev_ctx.thermostat.min_cool_setpoint_limit.dptr(),
+    dev_ctx.thermostat.max_cool_setpoint_limit.dptr(), dev_ctx.thermostat.min_setpoint_dead_band.dptr(),
+    dev_ctx.thermostat.remote_sensing.dptr(), dev_ctx.thermostat.control_seq_of_operation.dptr(),
+    dev_ctx.thermostat.system_mode, dev_ctx.thermostat.system_mode_ms, dev_ctx.thermostat.start_of_week.dptr(),
+    dev_ctx.thermostat.number_of_weekly_transitions.dptr(), dev_ctx.thermostat.number_of_daily_transitions.dptr(),
+    dev_ctx.thermostat.programming_operation_mode.dptr(), dev_ctx.thermostat.extra_status.dptr(),
+    dev_ctx.thermostat.spike_protection_count.dptr(), dev_ctx.thermostat.tiny_cycles.dptr(),
+    dev_ctx.thermostat.short_cycles.dptr(), dev_ctx.thermostat.normal_cycles.dptr(),
+    dev_ctx.thermostat.tiny_cycle_protection_count.dptr(), dev_ctx.thermostat.weather_compensation_ref_temp.dptr(),
+    dev_ctx.thermostat.heat_loss_constant.dptr(), dev_ctx.thermostat.radiator_exponent.dptr());
 
 ZB_ZCL_DECLARE_OPENTHERM_ATTRIB_LIST(opentherm_attr_list, dev_ctx.opentherm.version.dptr(),
                                      dev_ctx.opentherm.status.dptr(), dev_ctx.opentherm.flow_setpoint.dptr(),
@@ -972,16 +997,6 @@ void setup_watchdog() {
 }
 
 static void initialize_clusters(void) {
-  // Thermostat
-  uint16_t nonstd_reportable_attrs[] = {ZB_ZCL_ATTR_THERMOSTAT_OUTDOOR_TEMPERATURE_ID,
-                                        ZB_ZCL_ATTR_THERMOSTAT_OCCUPIED_HEATING_SETPOINT_ID,
-                                        ZB_ZCL_ATTR_THERMOSTAT_SYSTEM_MODE_ID};
-
-  for (const auto &aid : nonstd_reportable_attrs) {
-    auto ad = zb_zcl_get_attr_desc_a(ENDPOINT_ID, ZB_ZCL_CLUSTER_ID_THERMOSTAT, ZB_ZCL_CLUSTER_SERVER_ROLE, aid);
-    ad->access |= ZB_ZCL_ATTR_ACCESS_REPORTING;
-  }
-
   zb_zcl_thermostat_init();
 
   zb_zcl_basic_init_client();
@@ -1060,8 +1075,7 @@ static void start_chip_temp_timer() {
     k_timer_start(&chip_temp_timer, K_SECONDS(10), K_SECONDS(10));
 }
 
-#define K_THREAD_STACK_DECLARE_STATIC(sym, size)                                                                       \
-  static struct z_thread_stack_element sym[K_THREAD_STACK_LEN(size)];
+#define K_THREAD_STACK_DECLARE_STATIC(sym, size) static struct z_thread_stack_element sym[K_THREAD_STACK_LEN(size)];
 
 class ZigbeeRealTime : public litt::RealTime {
 public:
@@ -1094,7 +1108,11 @@ public:
 class MyTransport : public Master<ZephyrTimer, ZephyrMutex, ZephyrSemaphore, ZephyrTime, ZephyrQueue, ZephyrIO> {
 public:
   MyTransport(const ZephyrPins &pins, const CentralHeatingInterface &chif, uint32_t &network_timeouts)
-      : Master(pins), state(INIT), chif(chif), network_timeouts(network_timeouts) {}
+      : Master(
+            pins,
+            /* rx_fblink */ [](bool v) { gpio_pin_set_dt(&leds[0], v ? 1 : 0); },
+            /* tx_fblink */ [](bool v) { gpio_pin_set_dt(&leds[1], v ? 1 : 0); }),
+        state(INIT), chif(chif), network_timeouts(network_timeouts) {}
 
   virtual ~MyTransport() = default;
 
@@ -1186,6 +1204,7 @@ public:
   }
 
   virtual void on_dropped_frame(RequestID rid) override {
+    LOG_WRN("OpenTherm frame dropped (req id: %lld)", rid);
     Master::on_dropped_frame(rid);
     update_zcl_statistics();
   }
@@ -1427,6 +1446,8 @@ public:
 #endif
     }
 
+    dev_ctx.thermostat.system_mode_ms = dev_ctx.thermostat.system_mode;
+
     if (from != to) {
       save_configuration();
       save_statistics();
@@ -1469,6 +1490,7 @@ public:
 
     zb_int16_t rounded = (zb_int16_t)roundf(to * 100.0f);
     dev_ctx.thermostat.occupied_heating_setpoint = rounded;
+    dev_ctx.thermostat.occupied_heating_setpoint_ms = rounded;
     dev_ctx.opentherm.flow_setpoint = rounded;
   }
 
@@ -1693,7 +1715,7 @@ protected:
   OpenTherm::BoilerInterface<MyTransport> boiler;
   ZephyrTimer statistics_timer;
 
-  K_THREAD_STACK_DECLARE_STATIC(tx_thread_stack, 8192);
+  K_THREAD_STACK_DECLARE_STATIC(tx_thread_stack, 2048);
   struct k_thread tx_thread;
   k_tid_t tx_thread_tid = 0;
 
@@ -1703,14 +1725,14 @@ protected:
     app->transport.tx_forever();
   }
 
-  K_THREAD_STACK_DECLARE_STATIC(rx_thread_stack, 8192);
+  K_THREAD_STACK_DECLARE_STATIC(rx_thread_stack, 2048);
   struct k_thread rx_thread;
   k_tid_t rx_thread_tid = 0;
 
   static void rx_thread_fun(void *appp, void *, void *) {
     auto app = static_cast<MyApp *>(appp);
     k_thread_name_set(k_current_get(), "littZ RX");
-    app->transport.rx_forever([](bool v) { gpio_pin_set_dt(&leds[1], v ? 1 : 0); });
+    app->transport.rx_forever();
   }
 
   static bool statistics_ftick(Timer *, void *obj) {
@@ -1905,8 +1927,10 @@ static void zcl_device_cb(zb_uint8_t bufid) {
         switch (cb_param->cb_param.set_attr_value_param.attr_id) {
         case ZB_ZCL_ATTR_THERMOSTAT_SYSTEM_MODE_ID: {
           auto nv = cb_param->cb_param.set_attr_value_param.values.data8;
-          if (nv != ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF && nv != ZB_ZCL_THERMOSTAT_SYSTEM_MODE_HEAT)
+          if (nv != ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF && nv != ZB_ZCL_THERMOSTAT_SYSTEM_MODE_HEAT) {
             dev_ctx.thermostat.system_mode = nv = ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF;
+            dev_ctx.thermostat.system_mode_ms = dev_ctx.thermostat.system_mode;
+          }
           app().set_mode(nv == ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF ? MyThermostat::Mode::OFF
                                                                  : MyThermostat::Mode::MANUAL);
           handled = true;
@@ -2342,14 +2366,8 @@ static void setup_leds() {
   for (size_t i = 0; i < 3; i++) {
     if (!device_is_ready(leds[i].port))
       LOG_ERR("LED %d not ready.", i);
-
-    int err = gpio_pin_configure_dt(&leds[i], GPIO_OUTPUT_ACTIVE);
-    if (err < 0)
+    else if (gpio_pin_configure_dt(&leds[i], GPIO_OUTPUT_INACTIVE) < 0)
       LOG_ERR("GPIO config for LED %d failed.", i);
-
-    err = gpio_pin_set_dt(&leds[i], 0);
-    if (err < 0)
-      LOG_ERR("gpio_pin_set_dt for LED %d failed.", i);
   }
 }
 
@@ -2658,7 +2676,6 @@ int main(void) {
 
   // zb_nvram_erase();
 
-  // auto min = mpsl_tx_power_radio_supported_power_adjust(-127, 0);
   auto max = mpsl_tx_power_radio_supported_power_adjust(127, 1);
   LOG_INF("tx power level: %d", max);
 
@@ -2666,7 +2683,6 @@ int main(void) {
   env.phy = MPSL_PHY_Ieee802154_250Kbit;
   for (size_t i = 0; i < MPSL_TOTAL_NUM_OF_802154_CHANNELS; i++)
     env.envelope.tx_power_802154[i] = max;
-
 
   setup_watchdog();
   setup_leds();

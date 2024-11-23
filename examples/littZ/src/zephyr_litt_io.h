@@ -9,9 +9,9 @@ typedef litt::Pins<struct gpio_dt_spec> ZephyrPins;
 
 class ZephyrIO : public litt::OpenTherm::IO<ZephyrPins> {
 public:
-  ZephyrIO(const ZephyrPins &pins_)
+  ZephyrIO(const ZephyrPins &pins_, void (*rx_fblink)(bool) = nullptr, void (*tx_fblink)(bool) = nullptr)
       : litt::OpenTherm::IO<ZephyrPins>(pins_), tx_timer(500, 500, tx_timer_ftick, tx_timer_fstop, this), in_queue(16),
-        rx_callback_info({.io = this}) {
+        rx_callback_info({.io = this}), rx_fblink(rx_fblink), tx_fblink(tx_fblink) {
     const ZephyrPins &p = pins_;
 
     if (!device_is_ready(p.rx.port))
@@ -37,6 +37,8 @@ public:
   virtual ~ZephyrIO() = default;
 
   virtual void put(const litt::OpenTherm::Frame &f) override {
+    if (tx_fblink)
+      tx_fblink(true);
     bits_to_send = (1ull << 63) | ((uint64_t)f) << 31 | (1ull << 30);
     num_transitions_remaining = 68;
     tx_timer.start();
@@ -110,6 +112,9 @@ protected:
     // Note sure this is actually helps.
     gpio_pin_set_dt(&pins.tx, pins.tx_inverted ? 0 : 1);
 
+    if (tx_fblink)
+      tx_fblink(false);
+
     return true;
   }
 
@@ -119,6 +124,9 @@ protected:
     struct gpio_callback data;
     ZephyrIO *io;
   } rx_callback_info;
+
+  void (*rx_fblink)(bool);
+  void (*tx_fblink)(bool);
 
   enum RXState { IDLE, START, DATA, STOP };
 
@@ -152,7 +160,6 @@ protected:
       break;
     case START:
       if (delta > 750) {
-        // LOG_WRN("rx_callback: frame dropped in START: %lldus", delta);
         rx.state = IDLE;
       } else if (!rising) {
         rx.frame = 0x01;
@@ -163,7 +170,6 @@ protected:
       break;
     case DATA:
       if (delta > 1500) {
-        // LOG_WRN("rx_callback: frame dropped in DATA: %08x", rx.frame);
         rx.state = IDLE;
         rx.prev_time = time;
       } else if (delta >= 750) {
@@ -176,10 +182,8 @@ protected:
       break;
     case STOP:
       if (delta > 1500 || (delta > 750 && rising) || (delta <= 750 && !rising)) {
-        // LOG_WRN("rx_callback: frame dropped in STOP: %08x", rx.frame);
       } else {
         if (!in_queue.try_add(rx.frame))
-          // LOG_ERR("rx_callback: queue add failed");
           if (pins.owned)
             gpio_pin_interrupt_configure_dt(&pins.rx, GPIO_INT_DISABLE);
       }
@@ -190,6 +194,18 @@ protected:
       LOG_WRN("unknown RX state: %d", rx.state);
       rx.state = IDLE;
       rx.prev_time = time;
+    }
+
+    if (rx_fblink) {
+      switch (rx.state) {
+      case START:
+        rx_fblink(true);
+        break;
+      case DATA:
+        break;
+      default:
+        rx_fblink(false);
+      }
     }
   }
 };

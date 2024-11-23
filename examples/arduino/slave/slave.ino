@@ -1,15 +1,18 @@
-#include <stdio.h>
-#include <stdarg.h>
 #include <inttypes.h>
+#include <stdarg.h>
+#include <stdio.h>
+
 
 #include "FreeRTOSConfig.h"
 
 #include <Arduino_FreeRTOS.h>
-#include <task.h>
 #include <semphr.h>
+#include <task.h>
 
-#include <litt/opentherm/transport.h>
+
 #include <litt/opentherm/application.h>
+#include <litt/opentherm/transport.h>
+
 
 #include "arduino_litt_ds.h"
 #include "arduino_litt_io.h"
@@ -17,22 +20,25 @@
 using namespace litt;
 using namespace litt::OpenTherm;
 
-ArduinoIO* io = NULL;
+ArduinoIO *io = NULL;
 
 static FILE uartf = {0};
 static SemaphoreHandle_t log_mtx = NULL;
 static StaticSemaphore_t log_mtx_state;
 
-static int uart_putchar(char c, FILE *stream)
-{
+static int uart_putchar(char c, FILE *stream) {
   if (Serial.availableForWrite() > 1)
     Serial.write(c);
   return 0;
 }
 
 void vllog(const char *fmt, va_list args) {
-  if (log_mtx)
-    xSemaphoreTake(log_mtx, portMAX_DELAY);
+  if (log_mtx) {
+    if (xSemaphoreTake(log_mtx, pdMS_TO_TICKS(10)) != pdTRUE) {
+      printf("Did not get log mtx within 10ms\n");
+      fflush(stdout);
+    }
+  }
   printf("[%012lu] ", micros());
   vprintf(fmt, args);
   printf("\n");
@@ -48,23 +54,21 @@ void llog(const char *fmt, ...) {
   va_end(args);
 }
 
-class MyTransport : public Slave<ArduinoTimer, ArduinoSemaphore, ArduinoTime, ArduinoQueue, ArduinoIO, 2>
-{
+class MyTransport
+    : public Slave<ArduinoTimer, ArduinoMutex, ArduinoSemaphore, ArduinoTime, ArduinoQueue, ArduinoIO, 2> {
 public:
-  MyTransport(const ArduinoPins &pins) : Slave(pins) {}
+  MyTransport(const ArduinoPins &pins, void (*rx_fblink)(bool) = nullptr, void (*tx_fblink)(bool) = nullptr)
+      : Slave(pins, rx_fblink, tx_fblink) {}
   virtual ~MyTransport() = default;
 
   virtual void on_opentherm_supported() {}
   virtual void on_opentherm_unsupported() {}
 };
 
-class SlaveApp : public SmallApplication
-{
+class SlaveApp : public SmallApplication {
 public:
-  SlaveApp(const ArduinoPins &pins) :
-    SmallApplication(transport),
-    transport(pins)
-  {
+  SlaveApp(const ArduinoPins &pins)
+      : SmallApplication(transport), transport(pins, [](bool v) { digitalWrite(LED_BUILTIN, v ? HIGH : LOW); }) {
     transport.set_frame_callback(SmallApplication::sprocess, this);
 
     sconfig_smemberid = (uint16_t)0x0300;
@@ -101,9 +105,7 @@ public:
     return SmallApplication::on_invalid_data(data_id, data_value);
   }
 
-  virtual void run() override {
-    transport.rx_forever([](bool v){ digitalWrite(LED_BUILTIN, v ? HIGH : LOW); } );
-  }
+  virtual void run() override { transport.rx_forever(); }
 
 protected:
   MyTransport transport;
@@ -112,17 +114,21 @@ protected:
   int32_t last_frame_diff;
 };
 
-static SlaveApp app({.rx=3, .tx=5, .owned=true, .tx_inverted = true});
+SmallApplication &app() {
+  static ArduinoPins pins = {.rx = 3, .tx = 5, .owned = true, .tx_inverted = true};
+  static SlaveApp app(pins);
+  return app;
+}
 
-static void rx_task(void *) { app.run(); }
+static void rx_task(void *) { app().run(); }
 
 static StaticTask_t rx_task_buf;
-static StackType_t rx_task_stack[128];
+static StackType_t rx_task_stack[256];
 
-void setup()
-{
+void setup() {
   Serial.begin(115200);
-  // while (!Serial);
+  while (!Serial)
+    ;
 
   pinMode(LED_BUILTIN, OUTPUT);
   log_mtx = xSemaphoreCreateMutexStatic(&log_mtx_state);
@@ -133,7 +139,7 @@ void setup()
 
   llog("Slave starting... ");
 
-  xTaskCreateStatic(rx_task, "rx_task", 128, NULL, 1, rx_task_stack, &rx_task_buf);
+  xTaskCreateStatic(rx_task, "rx_task", 256, NULL, 1, rx_task_stack, &rx_task_buf);
 
   vTaskStartScheduler();
 }
@@ -141,10 +147,11 @@ void setup()
 void loop() {}
 
 extern "C" {
-  void vAssertCalled(const char* file, int line) {
-    llog("%s:%d: ASSERTION FAILED", file, line);
-    fflush(stdout);
-    // taskDISABLE_INTERRUPTS();
-    for( ;; );
-  }
+void vAssertCalled(const char *file, int line) {
+  llog("%s:%d: ASSERTION FAILED", file, line);
+  fflush(stdout);
+  // taskDISABLE_INTERRUPTS();
+  for (;;)
+    ;
+}
 }

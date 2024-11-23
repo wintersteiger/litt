@@ -68,11 +68,11 @@ public:
     Mode mode = Mode::OFF;
 
     // Mixing function
-    MixingFunction mixing_function = MixingFunction::FIRST;
+    MixingFunction mixing_function = MixingFunction::MAX;
 
     // A reference temperature for selection of the weather compensation curve [C].
     // (Ideal calls this the "room temperature setpoint", others use an index number.)
-    float weather_compensation_ref_temp = 21.0f;
+    float weather_compensation_ref_temp = 20.0f;
 
     // The heat loss constant for your house.
     // This is (U-Value [W/((m^2)K)] * Area [m^2] / Radiator output [W/K]) * dT [K].

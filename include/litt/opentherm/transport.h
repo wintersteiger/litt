@@ -227,7 +227,9 @@ public:
   };
 #pragma pack(pop)
 
-  Transport(const typename IOType::PinsType &pins_) : io(pins_), rx_frame_count(0) {}
+  Transport(const typename IOType::PinsType &pins_, void (*rx_fblink)(bool) = nullptr,
+            void (*tx_fblink)(bool) = nullptr)
+      : io(pins_, rx_fblink, tx_fblink), rx_frame_count(0) {}
 
   virtual ~Transport() {}
 
@@ -253,21 +255,17 @@ public:
 
   virtual RXResult rx_once() = 0;
 
-  void rx_forever(void (*fblink)(bool) = nullptr) {
-    rx_until([]() { return false; }, fblink);
+  void rx_forever() {
+    rx_until([]() { return false; });
   }
 
-  void rx_until(bool (*fstop)(), void (*fblink)(bool) = nullptr) {
+  void rx_until(bool (*fstop)()) {
     while (!fstop() && keep_running) {
       auto rxr = rx_once();
       // std::cout << time.get_us() << " M/S: rx_until: rx_last: " << rx_last.to_string() << std::endl;
       if (rxr.ok) {
-        if (fblink)
-          fblink(true);
         if (!process(rxr.f))
           io.log("Dev: frame processing failed: %08" PRIx32, (uint32_t)rxr.f);
-        if (fblink)
-          fblink(false);
       }
     }
   }
@@ -296,14 +294,14 @@ public:
 
   typename DeviceT::Statistics statistics;
 
-  Master(const typename IOType::PinsType &pins_)
-      : DeviceT(pins_), master_timer(
-                            0, 1000000,
-                            [](Timer *, void *data) {
-                              ((Master *)data)->next_master_msg();
-                              return true;
-                            },
-                            nullptr, this),
+  Master(const typename IOType::PinsType &pins_, void (*rx_fblink)(bool) = nullptr, void (*tx_fblink)(bool) = nullptr)
+      : DeviceT(pins_, rx_fblink, tx_fblink), master_timer(
+                                                  0, 1000000,
+                                                  [](Timer *, void *data) {
+                                                    ((Master *)data)->next_master_msg();
+                                                    return true;
+                                                  },
+                                                  nullptr, this),
         plus_check_timer(
             0, 20000000,
             [](Timer *timer, void *data) {
@@ -625,7 +623,8 @@ public:
   using DeviceT::time;
   using DeviceT::tx;
 
-  Slave(const typename IOType::PinsType &pins_) : DeviceT(pins_) {}
+  Slave(const typename IOType::PinsType &pins_, void (*rx_fblink)(bool) = nullptr, void (*tx_fblink)(bool) = nullptr)
+      : DeviceT(pins_, rx_fblink, tx_fblink) {}
 
   virtual ~Slave() = default;
 

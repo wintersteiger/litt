@@ -1,0 +1,18 @@
+identifier: littz_e73/nrf52840
+name: littZ E73
+vendor: ACME
+type: mcu
+arch: arm
+ram: 256
+flash: 1024
+toolchain:
+  - zephyr
+  - gnuarmemb
+  - xtools
+supported:
+  - counter
+  - gpio
+  - usb_cdc
+  - usb_device
+  - watchdog
+  - netif:openthread
