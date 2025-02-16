@@ -20,7 +20,7 @@
           label = "OpenTherm input";
       };
       opentherm_out: opentherm_out {
-        gpios = <&gpio0 3 GPIO_ACTIVE_HIGH>;
+        gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
         label = "OpenTherm output";
     };
   };
@@ -41,12 +41,17 @@
 		};
 	};
 
+  rtc: rtc-emul {
+		compatible = "zephyr,rtc-emul";
+	};
+
   aliases {
     otin = &opentherm_in;
     otout = &opentherm_out;
 		led0 = &led0;
 		led1 = &led1;
 		led2 = &led2;
+    rtc = &rtc;
   };
 
   chosen {

@@ -4,7 +4,7 @@
 
 / {
 	model = "littZ E73";
-	compatible = "ACME,custom-board-name";
+	compatible = "ACME,littz-e73";
 
 	chosen {
 		zephyr,console = &usb_cdc_acm_uart;
@@ -17,22 +17,39 @@
 		zephyr,code-partition = &slot0_partition;
 		zephyr,ieee802154 = &ieee802154;
 		zephyr,nrf-uicr = &uicr;
+		zephyr,nrf-gpiote = &gpiote;
 	};
 
 	leds {
 		compatible = "gpio-leds";
 		led0: led_0 {
 			gpios = <&gpio1 11 GPIO_ACTIVE_LOW>;
-			label = "Red LED";
+			label = "Left LED (D10)";
 		};
 		led1: led_1 {
 			gpios = <&gpio1 10 GPIO_ACTIVE_LOW>;
-			label = "Green LED";
+			label = "Middle LED (D9)";
 		};
 		led2: led_2 {
 			gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
-			label = "Blue LED";
+			label = "Right LED (D8)";
 		};
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+		opentherm_in: opentherm_in {
+			gpios = <&gpio0 24 GPIO_ACTIVE_HIGH>;
+			label = "OpenTherm input";
+		};
+		opentherm_out: opentherm_out {
+			gpios = <&gpio0 13 GPIO_ACTIVE_HIGH>;
+			label = "OpenTherm output";
+		};
+	};
+
+	rtc: rtc-emul {
+		compatible = "zephyr,rtc-emul";
 	};
 
 	aliases {
@@ -40,10 +57,15 @@
 		led1 = &led1;
 		led2 = &led2;
 		watchdog0 = &wdt0;
+		otin = &opentherm_in;
+		otout = &opentherm_out;
+		rtc = &rtc;
 	};
 };
 
-&uicr { gpio-as-nreset; };
+&uicr {
+	// gpio-as-nreset;
+};
 
 &flash0 {
 	partitions {
@@ -74,12 +96,7 @@
 };
 
 &uart0 {
-	compatible = "nordic,nrf-uarte";
-	status = "okay";
-	current-speed = <115200>;
-	pinctrl-0 = <&uart0_default>;
-	pinctrl-1 = <&uart0_sleep>;
-	pinctrl-names = "default", "sleep";
+	status = "disabled";
 };
 
 &gpiote {

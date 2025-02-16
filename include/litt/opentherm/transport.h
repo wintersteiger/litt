@@ -106,7 +106,7 @@ struct Frame {
 
   bool parity_ok() const { return compute_parity() == parity(); }
 
-  operator uint32_t() const { return (data & 0x70FFFFFF) | (compute_parity() ? 0x80000000 : 0); }
+  operator uint32_t() const { return (data & 0x7FFFFFFF) | (compute_parity() ? 0x80000000 : 0); }
 
   const char *to_string() const {
     static char strbuf[32];
@@ -262,11 +262,8 @@ public:
   void rx_until(bool (*fstop)()) {
     while (!fstop() && keep_running) {
       auto rxr = rx_once();
-      // std::cout << time.get_us() << " M/S: rx_until: rx_last: " << rx_last.to_string() << std::endl;
-      if (rxr.ok) {
-        if (!process(rxr.f))
-          io.log("Dev: frame processing failed: %08" PRIx32, (uint32_t)rxr.f);
-      }
+      if (rxr.ok)
+        process(rxr.f);
     }
   }
 };
@@ -298,10 +295,14 @@ public:
       : DeviceT(pins_, rx_fblink, tx_fblink), master_timer(
                                                   0, 1000000,
                                                   [](Timer *, void *data) {
+                                                    // LOG_INF("master timer tick");
                                                     ((Master *)data)->next_master_msg();
                                                     return true;
                                                   },
-                                                  nullptr, this),
+                                                  [](Timer *, void *data) {
+                                                    LOG_ERR("master timer stopped");
+                                                    return true;
+                                                  }, this),
         plus_check_timer(
             0, 20000000,
             [](Timer *timer, void *data) {
@@ -409,7 +410,7 @@ public:
   virtual void next_master_msg() { tx(Frame(OpenTherm::MsgType::ReadData, 0x00, status, 0x00), true); }
 
   virtual typename DeviceT::RXResult rx_once() override {
-    typename DeviceT::RXResult r;
+    typename DeviceT::RXResult r = { Frame(0), false };
 
 #ifdef NONBLOCKING_MASTER
     do {
@@ -430,14 +431,13 @@ public:
     rx_sem.release();
 #endif
 
-    // std::cout << time.get_us() << " M: rx_once: rx_sem released by " << std::this_thread::get_id() << std::endl;
-
     return r;
   }
 
   RequestStatus converse(const Request &req, Frame &reply) {
     uint64_t frame_time = 0;
-    bool acquired = false;
+    volatile bool acquired = false;
+    const uint64_t max_frame_time = 1000000;
 
     if (req.skip_if_busy && !tx_sem.try_acquire())
       return RequestStatus::SKIPPED;
@@ -445,30 +445,27 @@ public:
     if (!disable_master_timer)
       master_timer.stop(false);
 
+    io.set_cur_req_id(req.id);
+    // LOG_INF("TX %lld: %08x", req.id, req.f.data);
+
     {
       if (!req.skip_if_busy)
         tx_sem.acquire_blocking();
-      // std::cout << time.get_us() << " M: converse: tx_sem acquired by " << std::this_thread::get_id() << std::endl;
       rx_sem.acquire_blocking();
-      // std::cout << time.get_us() << " M: converse: rx_sem acquired by " << std::this_thread::get_id() << std::endl;
 
       uint64_t start_time = time.get_us();
       io.put(req.f);
 
-      // After 34 ms frame time, at least 20ms and at most 800ms before we can
-      // expect the reply to start. +10% slack. Max 1.15 sec between sends.
-      // std::cout << time.get_us() << " M: converse: waiting... by " << std::this_thread::get_id() << std::endl;
-      acquired = rx_sem.acquire_timeout((800 + 34 + 834 / 10) * 1000);
+      // After 34ms frame time, at least 20ms and at most 800ms before we can
+      // expect the reply to start. Add 34ms for the reply for a total of 800+34+34=868.
+      // (Max 1.15 sec between sends specified.)
+      acquired = rx_sem.acquire_timeout(max_frame_time - 34000);
       frame_time = time.get_us() - start_time;
 
       if (acquired) {
-        // std::cout << time.get_us() << " M: converse: rx_sem acquired by " << std::this_thread::get_id() << std::endl;
         // rx_tx_mtx.lock();
         reply = rx_last;
         // rx_tx_mtx.unlock();
-      } else {
-        // std::cout << time.get_us() << " M: converse: rx_sem NOT acquired by " << std::this_thread::get_id()
-        //           << std::endl;
       }
 
       // At least 100 ms before the next send.
@@ -476,22 +473,17 @@ public:
       rx_sem.release();
     }
 
-    if (frame_time < 1e6) {
-      if (!acquired) {
-        // std::cout << time.get_us() << " M: converse: drop (!acquired, frame time: " << frame_time
-        //           << ", rx_last: " << rx_last.to_string() << ") by " << std::this_thread::get_id() << std::endl;
-        on_dropped_frame(req.id);
-      }
-      // else
-      //   std::cout << time.get_us() << " M: converse: ok (acquired, frame time: " << frame_time
-      //             << ", rx_last: " << rx_last.to_string() << ") by " << std::this_thread::get_id() << std::endl;
-      if (!disable_master_timer)
-        master_timer.start(1e6 - frame_time);
-    } else {
+    if (!acquired)
+      on_dropped_frame(req.id);
+    else if (frame_time > max_frame_time)
       // This path should not be reached if the slave behaves according to the specification. If it is reached, it's
       // likely due to imprecise time measurement or timer triggering.
       on_late_frame(req.id);
-      if (!disable_master_timer) {
+
+    if (!disable_master_timer) {
+      if (frame_time < max_frame_time)
+        master_timer.start(max_frame_time - frame_time);
+      else {
         master_timer.tick();
         master_timer.start(1e6);
       }
@@ -516,7 +508,7 @@ public:
       }
       return frame_callback ? frame_callback(*frame_callback_obj, f) : true;
     } else
-      io.log("Master: parity check failed: %08x", f.data);
+      io.log("Master: parity check failed: %08" PRIx32 " (should be %08" PRIx32 ")", f.data, (uint32_t)f);
     return false;
   }
 
@@ -666,7 +658,7 @@ public:
         return false;
       }
     } else
-      io.log("Slave: parity check failed: %08x", f.data);
+      io.log("Slave: parity check failed: %08" PRIx32 " (should be %08" PRIx32 ")", f.data, (uint32_t)f);
     return false;
   }
 

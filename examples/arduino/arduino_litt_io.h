@@ -55,7 +55,7 @@ public:
     waiting_task = xTaskGetCurrentTaskHandle();
     if (pins.owned)
       attachInterrupt(digitalPinToInterrupt(pins.rx), internal_isr, CHANGE);
-    while (rx_state != COMPLETE)
+    while (rx_state != COMPLETE && rx_state != ERROR)
       ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     if (pins.owned)
       detachInterrupt(digitalPinToInterrupt(pins.rx));
@@ -67,7 +67,7 @@ public:
     waiting_task = xTaskGetCurrentTaskHandle();
     if (pins.owned)
       attachInterrupt(digitalPinToInterrupt(pins.rx), internal_isr, CHANGE);
-    while (rx_state != COMPLETE)
+    while (rx_state != COMPLETE && rx_state != ERROR)
       ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(timeout_us) / 1000);
     if (pins.owned)
       detachInterrupt(digitalPinToInterrupt(pins.rx));
@@ -79,10 +79,10 @@ public:
   void isr() { rx_callback(this); }
 
 protected:
-  enum RXState { IDLE, START, DATA, STOP, COMPLETE };
+  enum RXState { IDLE, START, DATA, STOP, COMPLETE, ERROR };
   volatile RXState rx_state = IDLE;
   volatile uint32_t frame = 0;
-  volatile unsigned long prev_time = 0;
+  volatile uint32_t prev_time = 0;
   volatile TaskHandle_t waiting_task;
   void (*rx_fblink)(bool);
   void (*tx_fblink)(bool);
@@ -91,11 +91,11 @@ protected:
 
   static void rx_callback(ArduinoIO *io) {
     bool rising = digitalRead(io->pins.rx);
-    unsigned long time = micros();
-    signed long delta = time - io->prev_time;
+    uint32_t time = micros();
+    int32_t delta = time - io->prev_time;
 
     if (delta < 0)
-      delta += ULONG_MAX;
+      delta += LONG_MAX;
 
     switch (io->rx_state) {
     case IDLE:
@@ -106,8 +106,8 @@ protected:
       break;
     case START:
       if (delta > 750) {
-        llog("frame dropped in START: %dus", delta);
-        io->rx_state = rising ? START : IDLE;
+        llog("D START");
+        io->rx_state = ERROR;
       } else if (!rising) {
         io->frame = 0x01;
         io->rx_state = DATA;
@@ -116,9 +116,9 @@ protected:
       io->prev_time = time;
       break;
     case DATA:
-      if (delta > 1500) {
-        llog("frame dropped in DATA: %08x", io->frame);
-        io->rx_state = rising ? START : IDLE;
+      if (delta > 1750) {
+        llog("D DATA: %08x", io->frame);
+        io->rx_state = ERROR;
         io->prev_time = time;
       } else if (delta >= 750) {
         bool is_last = (io->frame & 0x80000000) != 0;
@@ -130,20 +130,20 @@ protected:
       break;
     case STOP:
       if (delta > 1500 || (delta > 750 && rising) || (delta <= 750 && !rising)) {
-        llog("frame dropped in STOP: %08x", io->frame);
-        io->rx_state = IDLE;
+        llog("D STOP: %08x", io->frame);
+        io->rx_state = ERROR;
       } else
         io->rx_state = COMPLETE;
       io->prev_time = time;
       break;
     case COMPLETE:
+    case ERROR:
       break;
     default:
       llog("unknown RX state: %d", io->rx_state);
-      io->rx_state = IDLE;
+      io->rx_state = ERROR;
       io->prev_time = time;
     }
-
     if (io->rx_fblink) {
       switch (io->rx_state) {
       case START:
@@ -156,7 +156,7 @@ protected:
       }
     }
 
-    if (io->rx_state == IDLE || io->rx_state == COMPLETE) {
+    if (io->rx_state == ERROR || io->rx_state == COMPLETE) {
       if (io->waiting_task)
         vTaskNotifyGiveFromISR(io->waiting_task, NULL);
     }

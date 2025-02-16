@@ -1,6 +1,7 @@
 // CM Wintersteiger, 2022
 
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/rtc.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/kernel.h>
@@ -17,6 +18,7 @@ LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
 #include <hal/nrf_power.h>
 #include <mpsl_tx_power.h>
+#include <nrfx_clock.h>
 
 extern "C" {
 #include <zb_mem_config_max.h>
@@ -46,7 +48,7 @@ extern "C" {
 #include <litt/thermostat.h>
 
 #include "zephyr_litt_ds.h"
-#include "zephyr_litt_io.h"
+#include "nrf_litt_io.h"
 
 using namespace litt;
 using namespace litt::OpenTherm;
@@ -80,7 +82,7 @@ static const struct gpio_dt_spec leds[] = {GPIO_DT_SPEC_GET(LED0_NODE, gpios), G
       ZB_ZCL_CLUSTER_DESC(ZB_ZCL_CLUSTER_ID_BASIC, ZB_ZCL_ARRAY_SIZE(basic_attr_list, zb_zcl_attr_t),                  \
                           (basic_attr_list), ZB_ZCL_CLUSTER_SERVER_ROLE, ZB_ZCL_MANUF_CODE_INVALID),                   \
       ZB_ZCL_CLUSTER_DESC(ZB_ZCL_CLUSTER_ID_THERMOSTAT, ZB_ZCL_ARRAY_SIZE(thermostat_attr_list, zb_zcl_attr_t),        \
-                          (thermostat_attr_list), ZB_ZCL_CLUSTER_SERVER_ROLE, ZB_ZCL_MANUF_CODE_INVALID),              \
+                          (thermostat_attr_list), ZB_ZCL_CLUSTER_SERVER_ROLE, BASIC_MANUF_ID),                         \
       ZB_ZCL_CLUSTER_DESC(ZB_ZCL_CLUSTER_ID_OPENTHERM, ZB_ZCL_ARRAY_SIZE(opentherm_attr_list, zb_zcl_attr_t),          \
                           (opentherm_attr_list), ZB_ZCL_CLUSTER_SERVER_ROLE, ZB_ZCL_MANUF_CODE_INVALID),               \
       ZB_ZCL_CLUSTER_DESC(ZB_ZCL_CLUSTER_ID_TIME, ZB_ZCL_ARRAY_SIZE((time_attr_list), zb_zcl_attr_t),                  \
@@ -130,84 +132,66 @@ enum zb_zcl_opentherm_info_plus_attr_e {
   ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLE_PROTECTION_COUNT_ID = 0xFF05,
   ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID = 0xFF06,
   ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID = 0xFF07,
-  ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID = 0xFF08
+  ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID = 0xFF08,
+  ZB_ZCL_ATTR_THERMOSTAT_NUM_DEMANDERS_ID = 0xFF09
 };
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_EXTRA_STATUS_ID(data_ptr)                                        \
-  {                                                                                                                    \
-    ZB_ZCL_ATTR_THERMOSTAT_EXTRA_STATUS_ID, ZB_ZCL_ATTR_TYPE_U32,                                                      \
-        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC,                 \
-        (void *)data_ptr                                                                                               \
-  }
+  {ZB_ZCL_ATTR_THERMOSTAT_EXTRA_STATUS_ID, ZB_ZCL_ATTR_TYPE_U32,                                                       \
+   ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr}
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_SPIKE_PROTECTION_COUNT_ID(data_ptr)                              \
-  {                                                                                                                    \
-    ZB_ZCL_ATTR_THERMOSTAT_SPIKE_PROTECTION_COUNT_ID, ZB_ZCL_ATTR_TYPE_U32,                                            \
-        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC,                 \
-        (void *)data_ptr                                                                                               \
-  }
+  {ZB_ZCL_ATTR_THERMOSTAT_SPIKE_PROTECTION_COUNT_ID, ZB_ZCL_ATTR_TYPE_U32,                                             \
+   ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr}
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLES_ID(data_ptr)                                         \
-  {                                                                                                                    \
-    ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLES_ID, ZB_ZCL_ATTR_TYPE_U32,                                                       \
-        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC,                 \
-        (void *)data_ptr                                                                                               \
-  }
+  {ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLES_ID, ZB_ZCL_ATTR_TYPE_U32,                                                        \
+   ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr}
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_SHORT_CYCLES_ID(data_ptr)                                        \
-  {                                                                                                                    \
-    ZB_ZCL_ATTR_THERMOSTAT_SHORT_CYCLES_ID, ZB_ZCL_ATTR_TYPE_U32,                                                      \
-        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC,                 \
-        (void *)data_ptr                                                                                               \
-  }
+  {ZB_ZCL_ATTR_THERMOSTAT_SHORT_CYCLES_ID, ZB_ZCL_ATTR_TYPE_U32,                                                       \
+   ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr}
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_NORMAL_CYCLES_ID(data_ptr)                                       \
-  {                                                                                                                    \
-    ZB_ZCL_ATTR_THERMOSTAT_NORMAL_CYCLES_ID, ZB_ZCL_ATTR_TYPE_U32,                                                     \
-        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC,                 \
-        (void *)data_ptr                                                                                               \
-  }
+  {ZB_ZCL_ATTR_THERMOSTAT_NORMAL_CYCLES_ID, ZB_ZCL_ATTR_TYPE_U32,                                                      \
+   ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr}
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLE_PROTECTION_COUNT_ID(data_ptr)                         \
-  {                                                                                                                    \
-    ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLE_PROTECTION_COUNT_ID, ZB_ZCL_ATTR_TYPE_U32,                                       \
-        ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC,                 \
-        (void *)data_ptr                                                                                               \
-  }
+  {ZB_ZCL_ATTR_THERMOSTAT_TINY_CYCLE_PROTECTION_COUNT_ID, ZB_ZCL_ATTR_TYPE_U32,                                        \
+   ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr}
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID(data_ptr)                       \
-  {                                                                                                                    \
-    ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID, ZB_ZCL_ATTR_TYPE_U16, ZB_ZCL_ATTR_ACCESS_READ_WRITE,      \
-        ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr                                                             \
-  }
+  {ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID, ZB_ZCL_ATTR_TYPE_U16, ZB_ZCL_ATTR_ACCESS_READ_WRITE,       \
+   ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr}
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID(data_ptr)                                  \
-  {                                                                                                                    \
-    ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID, ZB_ZCL_ATTR_TYPE_U16, ZB_ZCL_ATTR_ACCESS_READ_WRITE,                 \
-        ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr                                                             \
-  }
+  {ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID, ZB_ZCL_ATTR_TYPE_U16, ZB_ZCL_ATTR_ACCESS_READ_WRITE,                  \
+   ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr}
 
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID(data_ptr)                                   \
-  {                                                                                                                    \
-    ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID, ZB_ZCL_ATTR_TYPE_U16, ZB_ZCL_ATTR_ACCESS_READ_WRITE,                  \
-        ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr                                                             \
-  }
+  {ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID, ZB_ZCL_ATTR_TYPE_U16, ZB_ZCL_ATTR_ACCESS_READ_WRITE,                   \
+   ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr}
+
+#define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_THERMOSTAT_NUM_DEMANDERS_ID(data_ptr)                                       \
+  {ZB_ZCL_ATTR_THERMOSTAT_NUM_DEMANDERS_ID, ZB_ZCL_ATTR_TYPE_U16,                                                      \
+   ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, ZB_ZCL_NON_MANUFACTURER_SPECIFIC, (void *)data_ptr}
 
 #define ZB_ZCL_DECLARE_THERMOSTAT_ATTRIB_LIST_EXT_PLUS(                                                                \
-    attr_list, local_temperature, outdoor_temperature, abs_min_heat_setpoint_limit, abs_max_heat_setpoint_limit,       \
-    abs_min_cool_setpoint_limit, abs_max_cool_setpoint_limit, PI_cooling_demand, PI_heating_demand,                    \
-    HVAC_system_type_configuration, local_temperature_calibration, occupied_cooling_setpoint,                          \
+    attr_list, local_temperature, outdoor_temperature, outdoor_temperature_ms, abs_min_heat_setpoint_limit,            \
+    abs_max_heat_setpoint_limit, abs_min_cool_setpoint_limit, abs_max_cool_setpoint_limit, PI_cooling_demand,          \
+    PI_heating_demand, HVAC_system_type_configuration, local_temperature_calibration, occupied_cooling_setpoint,       \
     occupied_heating_setpoint, occupied_heating_setpoint_ms, unoccupied_cooling_setpoint, unoccupied_heating_setpoint, \
     min_heat_setpoint_limit, max_heat_setpoint_limit, min_cool_setpoint_limit, max_cool_setpoint_limit,                \
     min_setpoint_dead_band, remote_sensing, control_seq_of_operation, system_mode, system_mode_ms, start_of_week,      \
     number_of_weekly_transitions, number_of_daily_transitions, programming_operation_mode, extra_status,               \
     spike_protection_count, tiny_cycles, short_cycles, normal_cycles, tiny_cycle_protection_count,                     \
-    weather_compensation_ref_temp, heat_loss_constant, radiator_exponent)                                              \
+    weather_compensation_ref_temp, heat_loss_constant, radiator_exponent, num_demanders)                               \
   ZB_ZCL_START_DECLARE_ATTRIB_LIST_CLUSTER_REVISION(attr_list, ZB_ZCL_THERMOSTAT)                                      \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_LOCAL_TEMPERATURE_ID, (local_temperature))                               \
+  ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_OUTDOOR_TEMPERATURE_ID, (outdoor_temperature))                           \
   ZB_ZCL_SET_MANUF_SPEC_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_OUTDOOR_TEMPERATURE_ID, ZB_ZCL_ATTR_TYPE_S16,                 \
                                   ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, BASIC_MANUF_ID,         \
-                                  (outdoor_temperature))                                                               \
+                                  (outdoor_temperature_ms))                                                            \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_ABS_MIN_HEAT_SETPOINT_LIMIT_ID, (abs_min_heat_setpoint_limit))           \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_ABS_MAX_HEAT_SETPOINT_LIMIT_ID, (abs_max_heat_setpoint_limit))           \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_ABS_MIN_COOL_SETPOINT_LIMIT_ID, (abs_min_cool_setpoint_limit))           \
@@ -232,7 +216,7 @@ enum zb_zcl_opentherm_info_plus_attr_e {
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_CONTROL_SEQUENCE_OF_OPERATION_ID, (control_seq_of_operation))            \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_SYSTEM_MODE_ID, (system_mode))                                           \
   ZB_ZCL_SET_MANUF_SPEC_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_SYSTEM_MODE_ID, ZB_ZCL_ATTR_TYPE_8BIT_ENUM,                   \
-                                  ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, BASIC_MANUF_ID,         \
+                                  ZB_ZCL_ATTR_ACCESS_READ_WRITE | ZB_ZCL_ATTR_ACCESS_REPORTING, BASIC_MANUF_ID,        \
                                   (system_mode_ms))                                                                    \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_START_OF_WEEK_ID, (start_of_week))                                       \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_NUMBER_OF_WEEKLY_TRANSITIONS_ID, (number_of_weekly_transitions))         \
@@ -247,10 +231,11 @@ enum zb_zcl_opentherm_info_plus_attr_e {
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_WEATHER_COMPENSATION_REF_TEMP_ID, (weather_compensation_ref_temp))       \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID, (heat_loss_constant))                             \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID, (radiator_exponent))                               \
+  ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_THERMOSTAT_NUM_DEMANDERS_ID, (num_demanders))                                       \
   ZB_ZCL_FINISH_DECLARE_ATTRIB_LIST
 
 #define ENDPOINT_ID 1
-#define BASIC_APP_VERSION 02
+#define BASIC_APP_VERSION 03
 #define BASIC_STACK_VERSION 10
 #define BASIC_HW_VERSION 01
 #define BASIC_MANUF_NAME "ACME Corp."
@@ -260,7 +245,7 @@ enum zb_zcl_opentherm_info_plus_attr_e {
 #define BASIC_POWER_SOURCE ZB_ZCL_BASIC_POWER_SOURCE_DC_SOURCE
 #define BASIC_LOCATION_DESC "Boiler"
 #define BASIC_PH_ENV ZB_ZCL_BASIC_ENV_UNSPECIFIED
-#define BASIC_SW_BUILD_ID "0.0.4"
+#define BASIC_SW_BUILD_ID "0.0.5"
 
 static void reboot(bool fatal = true);
 
@@ -301,7 +286,7 @@ static zb_uint16_t s_attribute_id;
 
 static void read_attribute(const zb_ieee_addr_t &addr, zb_uint8_t ep, zb_uint16_t cluster_id,
                            zb_uint16_t attribute_id) {
-  zb_ret_t r;
+  // zb_ret_t r;
 
   ZB_64BIT_ADDR_COPY(s_addr, addr);
   s_ep = ep;
@@ -311,11 +296,9 @@ static void read_attribute(const zb_ieee_addr_t &addr, zb_uint8_t ep, zb_uint16_
   LOG_DBG("read %04x/%04x from %04x:%d (%s)", cluster_id, attribute_id, zb_address_short_by_ieee(s_addr), s_ep,
           addr_to_string(s_addr));
 
-  // This?
   // zb_osif_disable_all_inter();
-  // bufid = zb_buf_get_out();
-  // zb_osif_enable_all_inter();
-
+  // zb_bufid_t bufid = zb_buf_get_out();
+  zb_ret_t r;
   if ((r = zb_buf_get_out_delayed([](zb_bufid_t bufid) {
          zb_uint8_t *cmd_ptr;
          cmd_ptr = (zb_uint8_t *)ZB_ZCL_START_PACKET(bufid);
@@ -325,7 +308,8 @@ static void read_attribute(const zb_ieee_addr_t &addr, zb_uint8_t ep, zb_uint16_
          ZB_ZCL_GENERAL_SEND_READ_ATTR_REQ(bufid, cmd_ptr, s_addr, ZB_APS_ADDR_MODE_64_ENDP_PRESENT, s_ep, ENDPOINT_ID,
                                            ZB_AF_HA_PROFILE_ID, s_cluster_id, NULL);
        })) != RET_OK)
-    LOG_WRN("zb_buf_get_out_delayed failed: %d", r);
+    LOG_ERR("error while allocating buffer for attribute read");
+  // zb_osif_enable_all_inter();
 }
 
 bool is_known(const zb_ieee_addr_t addr);
@@ -485,8 +469,7 @@ static void start_time_sync() {
 
 static void update_zcl_statistics();
 
-zb_bool_t rtc_cb(zb_uint32_t time) { return ZB_TRUE; }
-
+static bool zb_stack_enabled = false;
 static bool zb_stack_initialised = false;
 static bool zb_joining_signal_received = false;
 
@@ -528,6 +511,9 @@ void zboss_signal_handler(zb_bufid_t bufid) {
   case ZB_NLME_STATUS_INDICATION: {
     zb_zdo_signal_nlme_status_indication_params_t *nlme_status_ind =
         ZB_ZDO_SIGNAL_GET_PARAMS(sig_hdr, zb_zdo_signal_nlme_status_indication_params_t);
+    LOG_INF("NLME status: %02x nwk_addr: %04x unknown_cmd_id: %02x zb_joining_signal_received: %d",
+            nlme_status_ind->nlme_status.status, nlme_status_ind->nlme_status.network_addr,
+            nlme_status_ind->nlme_status.unknown_command_id, zb_joining_signal_received);
     if (nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE) {
       if (zb_stack_initialised && !zb_joining_signal_received) {
         LOG_ERR("Broken zigbee rejoin procedure detected, rebooting the device.");
@@ -614,7 +600,8 @@ protected:
         r = zb_zcl_set_attr_val(ENDPOINT_ID, attr->cluster_id, attr->role, attr->attribute_id, attr->next_value_ptr(),
                                 ZB_FALSE);
       if (r != ZB_ZCL_STATUS_SUCCESS)
-        LOG_ERR("error while updating %04x/%04x: status=%02x", attr->cluster_id, attr->attribute_id, r);
+        LOG_ERR("error while updating %04x/%04x(%d): status=%02x", attr->cluster_id, attr->attribute_id,
+                attr->manufacturer_specific, r);
       else
         attr->commit();
     }
@@ -623,14 +610,20 @@ protected:
   }
 
   static void schedule_update(AttributeBase *attr) {
+    if (!zb_stack_enabled)
+      return;
+
     AttributeBase::UpdateRequest tmp = {.attribute = attr};
 
-    if (zb_buf_memory_low() || zb_buf_is_oom_state())
+    if (zb_buf_memory_low())
       LOG_ERR("error while scheduling attribute update: zboss low on memory");
+    else if (zb_buf_is_oom_state())
+      LOG_ERR("error while scheduling attribute update: zboss out of memory");
     else if (!update_queue.try_add(tmp)) {
       LOG_ERR("error while scheduling attribute update: queue full");
     } else {
       zb_ret_t r;
+
       if ((r = zb_buf_get_out_delayed([](zb_bufid_t bufid) {
              zb_ret_t r;
              AttributeBase::UpdateRequest *req = (AttributeBase::UpdateRequest *)zb_buf_initial_alloc(
@@ -647,13 +640,13 @@ protected:
              } else {
                req->attribute = ureq.attribute;
                if ((r = ZB_SCHEDULE_APP_CALLBACK(AttributeBase::update, bufid)) != 0) {
-                 LOG_ERR("error while scheduling update for %04x/%04x: status=%02x", req->attribute->cluster_id,
+                 LOG_ERR("error while scheduling update for %04x/%04x: status=%d", req->attribute->cluster_id,
                          req->attribute->attribute_id, r);
                  zb_buf_free(bufid);
                }
              }
            })) != RET_OK) {
-        LOG_ERR("error while requesting buffer for update of %04x/%04x: status=%02x", attr->cluster_id,
+        LOG_ERR("error while requesting buffer for update of %04x/%04x: status=%d", attr->cluster_id,
                 attr->attribute_id, r);
         LOG_ERR("zboss: thread: created: %d suspended: %d", zigbee_debug_zboss_thread_is_created(),
                 zigbee_is_zboss_thread_suspended());
@@ -664,7 +657,7 @@ protected:
   }
 };
 
-ZephyrQueue<AttributeBase::UpdateRequest> AttributeBase::update_queue = ZephyrQueue<AttributeBase::UpdateRequest>(64);
+ZephyrQueue<AttributeBase::UpdateRequest> AttributeBase::update_queue = ZephyrQueue<AttributeBase::UpdateRequest>(128);
 
 template <typename T> class Attribute : public AttributeBase {
 public:
@@ -679,16 +672,21 @@ public:
 
   operator const T &() const { return dirty ? next_data : data; }
 
-  T &operator=(const T &value) {
+  Attribute<T> &operator=(const T &value) {
     next_data = value;
     dirty = true;
     schedule_update(this);
     return *this;
   }
 
+  Attribute<T> &operator=(const Attribute<T> &other) {
+    *this = other.dirty ? other.next_data : other.data;
+    return *this;
+  }
+
   virtual operator zb_uint8_t *() override { return (zb_uint8_t *)(dirty ? &next_data : &data); }
 
-  T *dptr() { return dirty ? &next_data : &data; }
+  T *dptr() { return &data; }
 
   Attribute<T> &operator++() {
     *this = (dirty ? next_data : data) + 1;
@@ -786,6 +784,8 @@ struct zb_zcl_thermostat_attrs_rich_t {
   Attribute<zb_int16_t> local_temperature = Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_LOCAL_TEMPERATURE_ID,
                                                                   ZB_ZCL_THERMOSTAT_LOCAL_TEMPERATURE_DEFAULT_VALUE);
   Attribute<zb_int16_t> outdoor_temperature =
+      Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_OUTDOOR_TEMPERATURE_ID, 0x8000);
+  Attribute<zb_int16_t> outdoor_temperature_ms =
       Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_OUTDOOR_TEMPERATURE_ID, 0x8000, true);
   Attribute<zb_int16_t> abs_min_heat_setpoint_limit =
       Attribute<zb_int16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_ABS_MIN_HEAT_SETPOINT_LIMIT_ID, 0);
@@ -861,6 +861,7 @@ struct zb_zcl_thermostat_attrs_rich_t {
       Attribute<zb_uint16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_HEAT_LOSS_CONSTANT_ID, 550);
   Attribute<zb_uint16_t> radiator_exponent =
       Attribute<zb_uint16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_RADIATOR_EXPONENT_ID, 130);
+  Attribute<zb_uint16_t> num_demanders = Attribute<zb_uint16_t>(R, C, ZB_ZCL_ATTR_THERMOSTAT_NUM_DEMANDERS_ID, 0);
 };
 
 struct zb_zcl_opentherm_attrs_rich_t {
@@ -922,23 +923,25 @@ ZB_ZCL_DECLARE_BASIC_ATTRIB_LIST_EXT(basic_attr_list, dev_ctx.basic.zcl_version.
 
 ZB_ZCL_DECLARE_THERMOSTAT_ATTRIB_LIST_EXT_PLUS(
     thermostat_attr_list, dev_ctx.thermostat.local_temperature.dptr(), dev_ctx.thermostat.outdoor_temperature.dptr(),
-    dev_ctx.thermostat.abs_min_heat_setpoint_limit.dptr(), dev_ctx.thermostat.abs_max_heat_setpoint_limit.dptr(),
-    dev_ctx.thermostat.abs_min_cool_setpoint_limit.dptr(), dev_ctx.thermostat.abs_max_cool_setpoint_limit.dptr(),
-    dev_ctx.thermostat.PI_cooling_demand.dptr(), dev_ctx.thermostat.PI_heating_demand.dptr(),
-    dev_ctx.thermostat.HVAC_system_type_configuration.dptr(), dev_ctx.thermostat.local_temperature_calibration.dptr(),
-    dev_ctx.thermostat.occupied_cooling_setpoint.dptr(), dev_ctx.thermostat.occupied_heating_setpoint.dptr(),
-    dev_ctx.thermostat.occupied_heating_setpoint_ms.dptr(), dev_ctx.thermostat.unoccupied_cooling_setpoint.dptr(),
-    dev_ctx.thermostat.unoccupied_heating_setpoint.dptr(), dev_ctx.thermostat.min_heat_setpoint_limit.dptr(),
-    dev_ctx.thermostat.max_heat_setpoint_limit.dptr(), dev_ctx.thermostat.min_cool_setpoint_limit.dptr(),
-    dev_ctx.thermostat.max_cool_setpoint_limit.dptr(), dev_ctx.thermostat.min_setpoint_dead_band.dptr(),
-    dev_ctx.thermostat.remote_sensing.dptr(), dev_ctx.thermostat.control_seq_of_operation.dptr(),
-    dev_ctx.thermostat.system_mode, dev_ctx.thermostat.system_mode_ms, dev_ctx.thermostat.start_of_week.dptr(),
+    dev_ctx.thermostat.outdoor_temperature_ms.dptr(), dev_ctx.thermostat.abs_min_heat_setpoint_limit.dptr(),
+    dev_ctx.thermostat.abs_max_heat_setpoint_limit.dptr(), dev_ctx.thermostat.abs_min_cool_setpoint_limit.dptr(),
+    dev_ctx.thermostat.abs_max_cool_setpoint_limit.dptr(), dev_ctx.thermostat.PI_cooling_demand.dptr(),
+    dev_ctx.thermostat.PI_heating_demand.dptr(), dev_ctx.thermostat.HVAC_system_type_configuration.dptr(),
+    dev_ctx.thermostat.local_temperature_calibration.dptr(), dev_ctx.thermostat.occupied_cooling_setpoint.dptr(),
+    dev_ctx.thermostat.occupied_heating_setpoint.dptr(), dev_ctx.thermostat.occupied_heating_setpoint_ms.dptr(),
+    dev_ctx.thermostat.unoccupied_cooling_setpoint.dptr(), dev_ctx.thermostat.unoccupied_heating_setpoint.dptr(),
+    dev_ctx.thermostat.min_heat_setpoint_limit.dptr(), dev_ctx.thermostat.max_heat_setpoint_limit.dptr(),
+    dev_ctx.thermostat.min_cool_setpoint_limit.dptr(), dev_ctx.thermostat.max_cool_setpoint_limit.dptr(),
+    dev_ctx.thermostat.min_setpoint_dead_band.dptr(), dev_ctx.thermostat.remote_sensing.dptr(),
+    dev_ctx.thermostat.control_seq_of_operation.dptr(), dev_ctx.thermostat.system_mode.dptr(),
+    dev_ctx.thermostat.system_mode_ms.dptr(), dev_ctx.thermostat.start_of_week.dptr(),
     dev_ctx.thermostat.number_of_weekly_transitions.dptr(), dev_ctx.thermostat.number_of_daily_transitions.dptr(),
     dev_ctx.thermostat.programming_operation_mode.dptr(), dev_ctx.thermostat.extra_status.dptr(),
     dev_ctx.thermostat.spike_protection_count.dptr(), dev_ctx.thermostat.tiny_cycles.dptr(),
     dev_ctx.thermostat.short_cycles.dptr(), dev_ctx.thermostat.normal_cycles.dptr(),
     dev_ctx.thermostat.tiny_cycle_protection_count.dptr(), dev_ctx.thermostat.weather_compensation_ref_temp.dptr(),
-    dev_ctx.thermostat.heat_loss_constant.dptr(), dev_ctx.thermostat.radiator_exponent.dptr());
+    dev_ctx.thermostat.heat_loss_constant.dptr(), dev_ctx.thermostat.radiator_exponent.dptr(),
+    dev_ctx.thermostat.num_demanders.dptr());
 
 ZB_ZCL_DECLARE_OPENTHERM_ATTRIB_LIST(opentherm_attr_list, dev_ctx.opentherm.version.dptr(),
                                      dev_ctx.opentherm.status.dptr(), dev_ctx.opentherm.flow_setpoint.dptr(),
@@ -1010,13 +1013,6 @@ static void initialize_clusters(void) {
   zb_zcl_diagnostics_init_server();
 }
 
-// The crudest RTC; a timer running at a 1sec period.
-static void non_macro_log_warn(const char *msg) { LOG_WRN("%s", msg); }
-
-K_TIMER_DEFINE(
-    rtc_timer, [](struct k_timer *) { dev_ctx.time.time++; },
-    [](struct k_timer *) { non_macro_log_warn("RTC timer stopped"); });
-
 static zb_bool_t zb_zcl_set_real_time_clock(zb_uint32_t time);
 
 static bool zb_utc_time_valid() {
@@ -1024,9 +1020,9 @@ static bool zb_utc_time_valid() {
 }
 
 zb_uint32_t zb_get_utc_time(void) {
-  if (zb_utc_time_valid())
+  if (zb_utc_time_valid()) {
     return dev_ctx.time.time;
-  else
+  } else
     return ZB_TIME_BEACON_INTERVAL_TO_MSEC(ZB_TIMER_GET()) / 1000;
 }
 
@@ -1042,7 +1038,7 @@ static void zb_zcl_time_sync_time_server_found_cb(zb_ret_t status, zb_uint32_t a
     LOG_INF("received network time from %04x:%u", short_addr, ep);
     zb_zcl_set_real_time_clock(nw_time);
   } else {
-    LOG_WRN("time sync: status=%u auth_level=%u short_addr=%04x ep=%u nw_time=%08x", status, auth_level, short_addr, ep,
+    LOG_WRN("time sync: status=%d auth_level=%u short_addr=%04x ep=%u nw_time=%08x", status, auth_level, short_addr, ep,
             nw_time);
   }
 }
@@ -1105,13 +1101,13 @@ public:
   }
 };
 
-class MyTransport : public Master<ZephyrTimer, ZephyrMutex, ZephyrSemaphore, ZephyrTime, ZephyrQueue, ZephyrIO> {
+class MyTransport : public Master<ZephyrTimer, ZephyrMutex, ZephyrSemaphore, ZephyrTime, ZephyrQueue, NRFIO> {
 public:
   MyTransport(const ZephyrPins &pins, const CentralHeatingInterface &chif, uint32_t &network_timeouts)
       : Master(
             pins,
-            /* rx_fblink */ [](bool v) { gpio_pin_set_dt(&leds[0], v ? 1 : 0); },
-            /* tx_fblink */ [](bool v) { gpio_pin_set_dt(&leds[1], v ? 1 : 0); }),
+            /* rx_fblink */ [](bool v) { gpio_pin_set_dt(&leds[1], v ? 1 : 0); },
+            /* tx_fblink */ [](bool v) { gpio_pin_set_dt(&leds[0], v ? 1 : 0); }),
         state(INIT), chif(chif), network_timeouts(network_timeouts) {}
 
   virtual ~MyTransport() = default;
@@ -1122,11 +1118,12 @@ public:
                                 Frame(ReadData, 127),     Frame(ReadData, 49),  Frame(ReadData, 57),
                                 Frame(WriteData, 1, 0.0f)};
 
-  Frame master_frames[18] = {Frame(ReadData, 0), Frame(ReadData, 10),      Frame(ReadData, 0), Frame(ReadData, 17),
-                             Frame(ReadData, 0), Frame(ReadData, 18),      Frame(ReadData, 0), Frame(ReadData, 19),
-                             Frame(ReadData, 0), Frame(ReadData, 25),      Frame(ReadData, 0), Frame(ReadData, 27),
-                             Frame(ReadData, 0), Frame(ReadData, 28),      Frame(ReadData, 0), Frame(ReadData, 35),
-                             Frame(ReadData, 0), Frame(WriteData, 1, 0.0f)};
+  Frame master_frames[22] = {Frame(ReadData, 0), Frame(ReadData, 10),       Frame(ReadData, 0), Frame(ReadData, 17),
+                             Frame(ReadData, 0), Frame(ReadData, 18),       Frame(ReadData, 0), Frame(ReadData, 19),
+                             Frame(ReadData, 0), Frame(ReadData, 25),       Frame(ReadData, 0), Frame(ReadData, 27),
+                             Frame(ReadData, 0), Frame(ReadData, 28),       Frame(ReadData, 0), Frame(ReadData, 35),
+                             Frame(ReadData, 0), Frame(WriteData, 1, 0.0f), Frame(ReadData, 0), Frame(ReadData, 49),
+                             Frame(ReadData, 0), Frame(WriteData, 57, 0.0f)};
 
   void advance() {
     auto next = [this](size_t sz, State next_state) {
@@ -1169,12 +1166,14 @@ public:
     }
 
     switch (f.id()) {
-    case 0: {
+    case 0:
       f = Frame(ReadData, f.id(), status, 0x00);
       break;
-    }
     case 1:
       f = Frame(f.msg_type(), f.id(), chif.flow_setpoint());
+      break;
+    case 57:
+      f = Frame(f.msg_type(), f.id(), chif.max_flow_setpoint());
       break;
     }
 
@@ -1204,12 +1203,13 @@ public:
   }
 
   virtual void on_dropped_frame(RequestID rid) override {
-    LOG_WRN("OpenTherm frame dropped (req id: %lld)", rid);
+    LOG_WRN("OpenTherm frame dropped (req id: %lld, state: %d, irqs: %llu)", rid, io.rx_state(), io.rx.num_irqs);
     Master::on_dropped_frame(rid);
     update_zcl_statistics();
   }
 
   virtual void on_late_frame(RequestID rid) override {
+    LOG_WRN("OpenTherm frame late (req id: %lld)", rid);
     Master::on_late_frame(rid);
     update_zcl_statistics();
   }
@@ -1224,8 +1224,8 @@ public:
     wdt_feed(wdt, wdt_channel);
     uint64_t now = time.get_us();
     if (0 < last_network_activity_time && last_network_activity_time <= now &&
-        now - last_network_activity_time > 15 * 60 * 1e6) {
-      LOG_ERR("network activity timeout; rebooting the device");
+        now - last_network_activity_time > 7 * 60 * 1e6) {
+      LOG_ERR("network activity timeout");
       network_timeouts++;
       reboot(false);
     }
@@ -1338,20 +1338,16 @@ public:
   virtual ~MyApp() = default;
 
   virtual void run() override {
-    auto mode = configuration.thermostat.mode;
-    on_mode_change(mode, mode);
+    on_mode_change(MyThermostat::Mode::OFF, MyThermostat::Mode::OFF);
 
-    // Initial values for OpenTherm data IDs.
-    tset = MyThermostat::flow_setpoint();
+    rx_thread_tid = k_thread_create(&rx_thread, rx_thread_stack, K_THREAD_STACK_SIZEOF(rx_thread_stack), rx_thread_fun,
+                                    this, NULL, NULL, (-CONFIG_NUM_COOP_PRIORITIES), K_ESSENTIAL, K_NO_WAIT);
+
+    tx_thread_tid = k_thread_create(&tx_thread, tx_thread_stack, K_THREAD_STACK_SIZEOF(tx_thread_stack), tx_thread_fun,
+                                    this, NULL, NULL, (-CONFIG_NUM_COOP_PRIORITIES), K_ESSENTIAL, K_NO_WAIT);
 
     // Start the OpenTherm master transport timers & threads.
     transport.start();
-
-    tx_thread_tid = k_thread_create(&tx_thread, tx_thread_stack, K_THREAD_STACK_SIZEOF(tx_thread_stack), tx_thread_fun,
-                                    this, NULL, NULL, -10, K_ESSENTIAL, K_NO_WAIT);
-
-    rx_thread_tid = k_thread_create(&rx_thread, rx_thread_stack, K_THREAD_STACK_SIZEOF(rx_thread_stack), rx_thread_fun,
-                                    this, NULL, NULL, -10, K_ESSENTIAL, K_NO_WAIT);
 
     statistics_timer.start();
   }
@@ -1379,6 +1375,26 @@ public:
   void network_activity() { transport.network_activity(); }
 
   virtual uint8_t transport_status() const { return transport.get_status(); }
+
+  bool have_max_flow_setpoint_bounds = false;
+  bool have_max_flow_setpoint_ack = false;
+
+  virtual void on_write_ack(uint8_t data_id, uint16_t data_value) override {
+    RichApplication::on_write_ack(data_id, data_value);
+    if (have_max_flow_setpoint_bounds && !have_max_flow_setpoint_ack && data_id == 57) {
+      have_max_flow_setpoint_ack = true;
+      tset = MyThermostat::flow_setpoint();
+      auto mode = configuration.thermostat.mode;
+      on_mode_change(mode, mode);
+    }
+  }
+
+  virtual void on_read_ack(uint8_t data_id, uint16_t data_value) override {
+    RichApplication::on_read_ack(data_id, data_value);
+
+    if (!have_max_flow_setpoint_bounds && data_id == 49)
+      have_max_flow_setpoint_bounds = true;
+  }
 
   virtual void on_master_status_change(uint8_t from, uint8_t to) override {
     LOG_DBG("master status := %02x", to);
@@ -1525,6 +1541,7 @@ public:
     RichApplication::on_outside_air_temperature_change(from, to);
     MyThermostat::on_outside_air_temperature_change(from, to);
     dev_ctx.thermostat.outdoor_temperature = (zb_uint16_t)roundf(to * 100.0f);
+    dev_ctx.thermostat.outdoor_temperature_ms = dev_ctx.thermostat.outdoor_temperature;
     boiler.otc_enable();
 
     if (from != to)
@@ -1637,6 +1654,9 @@ public:
 
 #ifdef USE_DEMAND_DRIVEN_THERMOSTAT
   bool report_demand(const zb_ieee_addr_t &addr, uint8_t endpoint, float demand) {
+    if (!ZB_IEEE_ADDR_IS_VALID(addr))
+      return false;
+
     uint8_t id = demander_addr2id(addr);
     if (id < MAX_DEMANDERS && demands[id].level != demand)
       LOG_INF("demand(%s/%04x) := %0.2f", addr_to_string(addresses[id]), zb_address_short_by_ieee(addresses[id]),
@@ -1748,7 +1768,7 @@ protected:
   }
 
   zb_ieee_addr_t addresses[MAX_DEMANDERS];
-  size_t num_addresses = 0;
+  uint16_t num_addresses = 0;
 
 public:
   struct RemoteTRV {
@@ -1756,15 +1776,19 @@ public:
     float setpoint;
   };
   RemoteTRV rtrvs[MAX_DEMANDERS];
+  ZephyrMutex rtrv_mtx;
 
   uint8_t demander_addr2id(const zb_ieee_addr_t &addr) {
+    LockGuard g(rtrv_mtx);
     for (size_t i = 0; i < num_addresses; i++)
-      if (ZB_64BIT_ADDR_CMP(addresses[i], addr))
+      if (ZB_64BIT_ADDR_CMP(addresses[i], addr) == ZB_TRUE)
         return i;
     if (num_addresses < MAX_DEMANDERS) {
       ZB_64BIT_ADDR_COPY(addresses[num_addresses], addr);
-      rtrvs[num_addresses].local_temperature = nanf("");
-      rtrvs[num_addresses].setpoint = nanf("");
+      rtrvs[num_addresses] = {nanf(""), nanf("")};
+      demands[num_addresses].time = Thermostat::time.get_us();
+      demands[num_addresses].level = nanf("");
+      dev_ctx.thermostat.num_demanders = num_addresses + 1;
       return num_addresses++;
     } else {
       LOG_WRN("too many network addresses to track: %s", addr_to_string(addr));
@@ -1775,7 +1799,7 @@ public:
 
   bool is_known(const zb_ieee_addr_t addr) {
     for (size_t i = 0; i < num_addresses; i++)
-      if (ZB_64BIT_ADDR_CMP(addresses[i], addr))
+      if (ZB_64BIT_ADDR_CMP(addresses[i], addr) == ZB_TRUE)
         return true;
     return false;
   }
@@ -1783,6 +1807,7 @@ public:
 #ifdef USE_DEMAND_DRIVEN_THERMOSTAT
   void show_demanders(const struct shell *sh) {
     // TODO: should not be a member.
+    LockGuard g(rtrv_mtx);
     auto now = Thermostat::time.get_us();
     shell_fprintf(sh, SHELL_NORMAL, "[idx] ext_addr         short_addr age        level t     s/p\n");
     for (size_t i = 0; i < num_addresses; i++) {
@@ -1802,6 +1827,7 @@ public:
 #else
   void show_demanders(const struct shell *sh) {
     // TODO: should not be a member.
+    LockGuard g(rtrv_mtx);
     auto now = Thermostat::time.get_us();
     shell_fprintf(sh, SHELL_NORMAL, "[idx] ext_addr         short_addr age        weight t     s/p\n");
     for (size_t i = 0; i < num_addresses; i++) {
@@ -1818,30 +1844,75 @@ public:
   }
 #endif
 
-protected:
 #ifdef USE_DEMAND_DRIVEN_THERMOSTAT
-  uint64_t demander_timeout_minutes = 360;
+  uint64_t demander_timeout_minutes = 60;
 
+public:
   virtual void check_demander_timeouts() {
     auto now = Thermostat::time.get_us();
+    bool have_timeouts = false;
+
     for (size_t i = 0; i < num_addresses; i++) {
       const Demand &d = demands[i];
       auto age_us = now - d.time;
-      if (age_us >= demander_timeout_minutes * 60.0f * 1e6f)
-        on_demander_timeout(i);
+
+      if (age_us >= demander_timeout_minutes * 60.0f * 1e6f) {
+        // have_timeouts = true;
+        // on_demander_timeout(i);
+      }
+    }
+
+    if (have_timeouts) {
+      // Timeouts can mean that a TRV has disappeared or failed, or that our own
+      // network connection is failing. Thus, we issue a leave with rejoin
+      // request to trigger route discovery, etc.
+
+      zb_ret_t r;
+      if ((r = zb_buf_get_out_delayed([](zb_bufid_t bufid) {
+             zb_zdo_mgmt_leave_param_t *params = (zb_zdo_mgmt_leave_param_s *)zb_buf_initial_alloc(
+                 bufid, sizeof(zb_zdo_mgmt_leave_param_t) + sizeof(zb_uint16_t));
+
+             if (!params) {
+               LOG_ERR("error while allocating buffer for zdo_mgmt_leave request parameters");
+               zb_buf_free(bufid);
+               return;
+             }
+
+             zb_get_long_address(params->device_address);
+             params->dst_addr = zb_get_short_address();
+             params->remove_children = ZB_FALSE;
+             params->rejoin = ZB_TRUE;
+
+             zb_ret_t r;
+             if ((r = zdo_mgmt_leave_req(bufid, [](zb_bufid_t bufid) {
+                    zb_zdo_mgmt_leave_res_t *r = (zb_zdo_mgmt_leave_res_t *)zb_buf_begin(bufid);
+                    LOG_INF("mgmt_leave_req status: %02x", r->status);
+                    zb_buf_free(bufid);
+                  })) == 0xFF) {
+               LOG_ERR("could not make zdo_mgmt_leave request");
+             }
+           })) != RET_OK) {
+        LOG_ERR("error while allocating buffer for zdo_mgmt_leave request");
+      }
     }
   }
 
+protected:
   virtual void on_demander_timeout(uint8_t id) {
-    if (id < num_addresses) {
-      LOG_DBG("demander timeout: %s (%u)", addr_to_string(addresses[id]), id);
+    LockGuard g(rtrv_mtx);
 
-      for (size_t i = id; i < num_addresses - 1; i++) {
+    if (id < num_addresses) {
+      LOG_INF("demander timeout: %s (%u)", addr_to_string(addresses[id]), id);
+
+      for (uint16_t i = id; i < num_addresses - 1; i++) {
         ZB_64BIT_ADDR_COPY(addresses[i], addresses[i + 1]);
         rtrvs[i] = rtrvs[i + 1];
+        demands[i] = demands[i + 1];
       }
 
+      max_id_seen--;
       num_addresses--;
+      dev_ctx.thermostat.num_demanders = num_addresses;
     }
 
     MyThermostat::delete_demander(id);
@@ -1860,7 +1931,7 @@ MyApp &app() {
     static ZephyrPins pins = {.rx = GPIO_DT_SPEC_GET(OT_IN_NODE, gpios),
                               .tx = GPIO_DT_SPEC_GET(OT_OUT_NODE, gpios),
                               .owned = true,
-                              .tx_inverted = true};
+                              .tx_inverted = false};
     r = new MyApp(pins);
   }
   __ASSERT(r != nullptr, "failed to allocate app");
@@ -1887,11 +1958,14 @@ static zb_bool_t zb_zcl_set_real_time_clock(zb_uint32_t time) {
   if (is_different && was_scheduling)
     app().stop_scheduling();
 
-  k_timer_stop(&rtc_timer);
   dev_ctx.time.time = time;
   dev_ctx.time.time_status = 0x02;
   // TODO: Add support for timezones?
-  k_timer_start(&rtc_timer, K_NO_WAIT, K_SECONDS(1));
+
+  time_t t = (time_t)time + 946684800;
+  struct rtc_time lt;
+  *rtc_time_to_tm(&lt) = *gmtime(&t);
+  rtc_set_time(DEVICE_DT_GET(DT_ALIAS(rtc)), &lt);
 
   if ((is_different || first_time) && was_scheduling)
     app().start_scheduling();
@@ -1927,12 +2001,19 @@ static void zcl_device_cb(zb_uint8_t bufid) {
         switch (cb_param->cb_param.set_attr_value_param.attr_id) {
         case ZB_ZCL_ATTR_THERMOSTAT_SYSTEM_MODE_ID: {
           auto nv = cb_param->cb_param.set_attr_value_param.values.data8;
-          if (nv != ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF && nv != ZB_ZCL_THERMOSTAT_SYSTEM_MODE_HEAT) {
-            dev_ctx.thermostat.system_mode = nv = ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF;
-            dev_ctx.thermostat.system_mode_ms = dev_ctx.thermostat.system_mode;
+          dev_ctx.thermostat.system_mode = nv;
+          dev_ctx.thermostat.system_mode_ms = nv;
+          switch (nv) {
+          case ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF:
+            app().set_mode(MyThermostat::Mode::OFF);
+            break;
+          case ZB_ZCL_THERMOSTAT_SYSTEM_MODE_HEAT:
+            app().set_mode(MyThermostat::Mode::AUTOMATIC);
+            break;
+          default:
+            app().set_mode(MyThermostat::Mode::MANUAL);
+            break;
           }
-          app().set_mode(nv == ZB_ZCL_THERMOSTAT_SYSTEM_MODE_OFF ? MyThermostat::Mode::OFF
-                                                                 : MyThermostat::Mode::MANUAL);
           handled = true;
           break;
         }
@@ -2362,12 +2443,40 @@ zb_ret_t zb_nvram_write_statistics(zb_uint8_t page, zb_uint32_t pos) {
   return zb_nvram_write_data(page, pos, buf, sz);
 }
 
+K_TIMER_DEFINE(demander_timer, [](struct k_timer *) { app().check_demander_timeouts(); }, [](struct k_timer *t) {});
+
 static void setup_leds() {
   for (size_t i = 0; i < 3; i++) {
     if (!device_is_ready(leds[i].port))
       LOG_ERR("LED %d not ready.", i);
     else if (gpio_pin_configure_dt(&leds[i], GPIO_OUTPUT_INACTIVE) < 0)
       LOG_ERR("GPIO config for LED %d failed.", i);
+  }
+}
+
+static void setup_rtc() {
+  nrfx_clock_start(NRF_CLOCK_DOMAIN_LFCLK);
+
+  const struct device *rtcdev = DEVICE_DT_GET(DT_ALIAS(rtc));
+
+  if (!device_is_ready(rtcdev)) {
+    LOG_ERR("RTC device not ready");
+  } else {
+    struct rtc_time tm = {
+        .tm_sec = 0,
+        .tm_min = 0,
+        .tm_hour = 0,
+        .tm_mday = 1,
+        .tm_mon = 0,
+        .tm_year = 2000 - 1900,
+        .tm_wday = -1,
+        .tm_yday = -1,
+        .tm_isdst = -1,
+        .tm_nsec = 0,
+    };
+
+    rtc_set_time(rtcdev, &tm);
+    rtc_update_set_callback(rtcdev, [](const device *, void *) { dev_ctx.time.time++; }, nullptr);
   }
 }
 
@@ -2382,6 +2491,8 @@ static void setup_settings() {
 }
 
 static void start_zigbee() {
+  // return;
+
   ZB_ZCL_REGISTER_DEVICE_CB(zcl_device_cb);
   ZB_AF_REGISTER_DEVICE_CTX(&device_context);
   ZB_ZCL_SET_REPORT_ATTR_CB(report_attribute_cb);
@@ -2390,11 +2501,13 @@ static void start_zigbee() {
   zb_nvram_register_app1_write_cb(zb_nvram_write_config, zb_nvram_get_config_size);
   zb_nvram_register_app2_read_cb(zb_nvram_read_statistics);
   zb_nvram_register_app2_write_cb(zb_nvram_write_statistics, zb_nvram_get_statistics_size);
-  ZB_ZCL_TIME_SET_REAL_TIME_CLOCK_CB(rtc_cb);
 
   initialize_clusters();
 
+  ZB_ZCL_TIME_SET_REAL_TIME_CLOCK_CB(zb_zcl_set_real_time_clock);
+
   zigbee_enable();
+  zb_stack_enabled = true;
 }
 
 static void setup_log_timestamps() {
@@ -2620,17 +2733,28 @@ static int sh_cmd_set_mix(const struct shell *sh, size_t argc, char **argv) {
   return 0;
 }
 
+static int sh_cmd_erase(const struct shell *sh, size_t argc, char **argv) {
+  if (argc != 1) {
+    shell_fprintf(sh, SHELL_ERROR, "Invalid number of arguments\n");
+    return -EINVAL;
+  }
+  shell_fprintf(sh, SHELL_NORMAL, "erasing NVRAM\n");
+  zb_nvram_erase();
+  reboot();
+  return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_litt,
 #ifdef USE_DEMAND_DRIVEN_THERMOSTAT
                                SHELL_CMD_ARG(demand, NULL,
                                              "Report the demand of a thermostat.\n"
                                              "Usage: demand <h:short_addr> <d:endpoint> <f:demand between 0.0 and 1.0>",
                                              sh_cmd_demand, 1, 2),
-#endif
                                SHELL_CMD_ARG(demanders, NULL,
                                              "Show demanders\n"
                                              "Usage: demanders",
                                              sh_cmd_demanders, 1, 0),
+#endif
                                SHELL_CMD_ARG(status, NULL,
                                              "Get/set (OpenTherm) master status.\n"
                                              "Usage: status [h:1 byte]",
@@ -2659,6 +2783,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_litt,
                                              "Set mixing function (0=first, 1=max, 2=average)\n"
                                              "Usage: mix [h:1 byte]",
                                              sh_cmd_set_mix, 1, 1),
+                               SHELL_CMD_ARG(erase, NULL,
+                                             "Erase NVRAM and reboot device\n"
+                                             "Usage: erase",
+                                             sh_cmd_erase, 1, 0),
                                SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(litt, &sub_litt, "litt commands", NULL);
@@ -2669,27 +2797,76 @@ int main(void) {
   LOG_INF("starting littZ on %s", CONFIG_BOARD);
   LOG_INF("build date: %s %s", __DATE__, __TIME__);
 
-#if NRF_POWER_HAS_MAINREGSTATUS == 1
+#if NRF_POWER_HAS_MAINREGSTATUS
   nrf_power_mainregstatus_t pwr_status = nrf_power_mainregstatus_get(NRF_POWER);
   LOG_INF("power mode: %s", (pwr_status == POWER_MAINREGSTATUS_MAINREGSTATUS_Normal) ? "normal" : "high");
 #endif
 
-  // zb_nvram_erase();
+#if NRF_POWER_HAS_DCDCEN_VDDH
+  /* This is DCDCEN0, REG0. */
+  LOG_INF("DCDC VDDH enabled (DCDCEN0, REG0): %d", nrf_power_dcdcen_vddh_get(NRF_POWER));
+#else
+  LOG_INF("DCDC VDDH (DCDCEN0, REG0) not present");
+#endif
 
-  auto max = mpsl_tx_power_radio_supported_power_adjust(127, 1);
-  LOG_INF("tx power level: %d", max);
+#if NRF_POWER_HAS_DCDCEN
+  /* This is DCDCEN, REG1 */
+  LOG_INF("DCDC enabled (DCDCEN, REG1): %d", nrf_power_dcdcen_get(NRF_POWER));
+#else
+  LOG_INF("DCDC (DCDCEN, REG1) not present");
+#endif
 
-  mpsl_tx_power_envelope_t env;
-  env.phy = MPSL_PHY_Ieee802154_250Kbit;
-  for (size_t i = 0; i < MPSL_TOTAL_NUM_OF_802154_CHANNELS; i++)
-    env.envelope.tx_power_802154[i] = max;
+#if NRF_POWER_HAS_RESETREAS
+  uint32_t rr = nrf_power_resetreas_get(NRF_POWER);
+  LOG_INF("reset reasons: %08x", rr);
+  nrf_power_resetreas_clear(NRF_POWER, 0xFFFFFFFF);
+
+  if (rr == 0)
+    LOG_INF("  - on-chip reset generator/power-on-reset/brown-out");
+  else {
+
+    if (rr & NRF_POWER_RESETREAS_RESETPIN_MASK)
+      LOG_INF("  - reset pin");
+    if (rr & NRF_POWER_RESETREAS_DOG_MASK)
+      LOG_INF("  - dog");
+    if (rr & NRF_POWER_RESETREAS_SREQ_MASK)
+      LOG_INF("  - sreq");
+    if (rr & NRF_POWER_RESETREAS_LOCKUP_MASK)
+      LOG_INF("  - lockup");
+    if (rr & NRF_POWER_RESETREAS_OFF_MASK)
+      LOG_INF("  - off");
+#if NRF_POWER_HAS_RESETREAS_LPCOMP
+    if (rr & NRF_POWER_RESETREAS_LPCOMP_MASK)
+      LOG_INF("  - lpcomp");
+#endif
+    if (rr & NRF_POWER_RESETREAS_DIF_MASK)
+      LOG_INF("  - dif");
+#if NRF_POWER_HAS_RESETREAS_NFC
+    if (rr & NRF_POWER_RESETREAS_NFC_MASK)
+      LOG_INF("  - nfc");
+#endif
+#if NRF_POWER_HAS_RESETREAS_VBUS
+    if (rr & NRF_POWER_RESETREAS_VBUS_MASK)
+      LOG_INF("  - vbus");
+#endif
+#if NRF_POWER_HAS_RESETREAS_CTRLAP
+    if (rr & NRF_POWER_RESETREAS_CTRLAP_MASK)
+      LOG_INF("  - ctrlap");
+#endif
+  }
+#endif
 
   setup_watchdog();
   setup_leds();
+  setup_rtc();
   setup_settings();
   start_zigbee();
   start_chip_temp_timer();
   setup_log_timestamps();
+
+#ifdef USE_DEMAND_DRIVEN_THERMOSTAT
+  k_timer_start(&demander_timer, K_MINUTES(15), K_MINUTES(15));
+#endif
 
   app().run();
 

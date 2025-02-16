@@ -39,10 +39,16 @@ void vllog(const char *fmt, va_list args) {
       fflush(stdout);
     }
   }
-  printf("[%012lu] ", micros());
-  vprintf(fmt, args);
-  printf("\n");
-  fflush(stdout);
+  static char buf[128] = "";
+  buf[0] = 0;
+  const char* p = buf;
+  // p += sprintf(p, "[%012lu] ", micros());
+  p += vsprintf(p, fmt, args);
+  p += sprintf(p, "\n");
+  // printf(buf);
+  // fflush(stdout);
+  Serial.print(buf);
+  Serial.flush();
   if (log_mtx)
     xSemaphoreGive(log_mtx);
 }
